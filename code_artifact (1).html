@@ -1,0 +1,2666 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Офисный Замес: С Днём Рождения, Папа! (Tactical Hardcore Edition)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;900&family=Oswald:wght@500;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Montserrat', sans-serif;
+            background-color: #0c0e14;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .font-oswald {
+            font-family: 'Oswald', sans-serif;
+        }
+        /* Скрытие системного курсора ТОЛЬКО во время боя */
+        .custom-cursor-active {
+            cursor: none !important;
+        }
+        .custom-cursor-active * {
+            cursor: none !important;
+        }
+        
+        /* Тактический стальной прицел */
+        #crosshair {
+            pointer-events: none;
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            transform: translate(-50%, -50%);
+            z-index: 9999;
+            display: none;
+        }
+        /* Тряска экрана при попадании */
+        @keyframes shake {
+            0% { transform: translate(3px, 2px) rotate(0deg); }
+            10% { transform: translate(-2px, -3px) rotate(-1deg); }
+            20% { transform: translate(-4px, 0px) rotate(1deg); }
+            30% { transform: translate(0px, 3px) rotate(0deg); }
+            40% { transform: translate(2px, -2px) rotate(1deg); }
+            50% { transform: translate(-2px, 3px) rotate(-1deg); }
+            60% { transform: translate(-4px, 2px) rotate(0deg); }
+            70% { transform: translate(3px, 2px) rotate(-1deg); }
+            80% { transform: translate(-2px, -2px) rotate(1deg); }
+            90% { transform: translate(3px, 3px) rotate(0deg); }
+            100% { transform: translate(2px, -3px) rotate(-1deg); }
+        }
+        .screen-shake {
+            animation: shake 0.35s cubic-bezier(.36,.07,.19,.97) both;
+        }
+        
+        /* Движение оружия от первого лица */
+        #weapon-viewport {
+            transition: transform 0.08s ease-out;
+        }
+
+        /* Реалистичные пулевые отверстия */
+        .bullet-hole {
+            position: absolute;
+            width: 22px;
+            height: 22px;
+            background: radial-gradient(circle, rgba(10,10,10,1) 15%, rgba(60,60,60,0.9) 35%, rgba(100,100,100,0.4) 55%, rgba(0,0,0,0) 75%);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 100;
+        }
+        .bullet-hole::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 30px;
+            height: 1px;
+            background: linear-gradient(90deg, rgba(200,200,200,0.4), transparent);
+            transform-origin: left center;
+            transform: translate(0, -50%) rotate(calc(var(--angle) * 1deg));
+            pointer-events: none;
+        }
+        
+        /* Плавное покачивание спам-папок */
+        @keyframes folderBob {
+            0% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+            100% { transform: translateY(0); }
+        }
+        .spam-window {
+            animation: folderBob 3s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body id="game-body" class="bg-slate-950 text-white w-screen h-screen relative select-none">
+
+    <!-- Звуковое сопровождение (Web Audio API Synthesizer с полной защитой от сбоев) -->
+    <script>
+        const audioSynth = {
+            ctx: null,
+            init() {
+                if (this.ctx) return;
+                try {
+                    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                    if (AudioContextClass) {
+                        this.ctx = new AudioContextClass();
+                    }
+                } catch (e) {
+                    console.warn("AudioContext не поддерживается или заблокирован безопасностью браузера. Игра запущена в беззвучном режиме.");
+                    this.ctx = null;
+                }
+            },
+            resume() {
+                if (!this.ctx) return;
+                try {
+                    if (this.ctx.state === 'suspended') {
+                        this.ctx.resume().catch(() => {});
+                    }
+                } catch (e) {
+                    console.warn("Не удалось возобновить AudioContext:", e);
+                }
+            },
+            playShoot() {
+                try {
+                    this.init();
+                    this.resume();
+                    if (!this.ctx) return;
+                    const ctx = this.ctx;
+                    const now = ctx.currentTime;
+                    
+                    const bufferSize = ctx.sampleRate * 0.35;
+                    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+                    const data = buffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) {
+                        data[i] = Math.random() * 2 - 1;
+                    }
+                    const noise = ctx.createBufferSource();
+                    noise.buffer = buffer;
+
+                    const filter = ctx.createBiquadFilter();
+                    filter.type = 'bandpass';
+                    filter.frequency.setValueAtTime(600, now);
+                    filter.frequency.exponentialRampToValueAtTime(80, now + 0.25);
+
+                    const gain = ctx.createGain();
+                    gain.gain.setValueAtTime(1.8, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.22);
+
+                    const osc = ctx.createOscillator();
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(120, now);
+                    osc.frequency.exponentialRampToValueAtTime(30, now + 0.12);
+
+                    const oscGain = ctx.createGain();
+                    oscGain.gain.setValueAtTime(1.2, now);
+                    oscGain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+
+                    noise.connect(filter);
+                    filter.connect(gain);
+                    gain.connect(ctx.destination);
+
+                    osc.connect(oscGain);
+                    oscGain.connect(ctx.destination);
+
+                    noise.start(now);
+                    osc.start(now);
+                    noise.stop(now + 0.35);
+                    osc.stop(now + 0.15);
+                } catch (e) {
+                    console.warn("Ошибка воспроизведения звука выстрела:", e);
+                }
+            },
+            playExplosion() {
+                try {
+                    this.init();
+                    this.resume();
+                    if (!this.ctx) return;
+                    const ctx = this.ctx;
+                    const now = ctx.currentTime;
+                    
+                    const osc = ctx.createOscillator();
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(90, now);
+                    osc.frequency.exponentialRampToValueAtTime(5, now + 0.7);
+                    
+                    const gain = ctx.createGain();
+                    gain.gain.setValueAtTime(2.5, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.8);
+                    
+                    const bufferSize = ctx.sampleRate * 1.0;
+                    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+                    const data = buffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) {
+                        data[i] = Math.random() * 2 - 1;
+                    }
+                    const noise = ctx.createBufferSource();
+                    noise.buffer = buffer;
+                    
+                    const noiseFilter = ctx.createBiquadFilter();
+                    noiseFilter.type = 'lowpass';
+                    noiseFilter.frequency.setValueAtTime(180, now);
+                    
+                    const noiseGain = ctx.createGain();
+                    noiseGain.gain.setValueAtTime(2.0, now);
+                    noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.9);
+                    
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    
+                    noise.connect(noiseFilter);
+                    noiseFilter.connect(noiseGain);
+                    noiseGain.connect(ctx.destination);
+                    
+                    osc.start(now);
+                    noise.start(now);
+                    osc.stop(now + 0.9);
+                    noise.stop(now + 0.9);
+                } catch (e) {
+                    console.warn("Ошибка воспроизведения звука взрыва:", e);
+                }
+            },
+            playShatter() {
+                try {
+                    this.init();
+                    this.resume();
+                    if (!this.ctx) return;
+                    const ctx = this.ctx;
+                    const now = ctx.currentTime;
+                    for (let i = 0; i < 4; i++) {
+                        const osc = ctx.createOscillator();
+                        osc.type = 'triangle';
+                        osc.frequency.setValueAtTime(100 + Math.random() * 300, now + i * 0.03);
+                        
+                        const gain = ctx.createGain();
+                        gain.gain.setValueAtTime(0.4, now + i * 0.03);
+                        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15 + i * 0.02);
+                        
+                        osc.connect(gain);
+                        gain.connect(ctx.destination);
+                        osc.start(now + i * 0.03);
+                        osc.stop(now + 0.3);
+                    }
+                } catch (e) {
+                    console.warn("Ошибка воспроизведения звука разбития:", e);
+                }
+            },
+            playHit() {
+                try {
+                    this.init();
+                    this.resume();
+                    if (!this.ctx) return;
+                    const ctx = this.ctx;
+                    const now = ctx.currentTime;
+                    const osc = ctx.createOscillator();
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(130, now);
+                    osc.frequency.linearRampToValueAtTime(40, now + 0.08);
+                    
+                    const gain = ctx.createGain();
+                    gain.gain.setValueAtTime(0.8, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+                    
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.1);
+                } catch (e) {
+                    console.warn("Ошибка воспроизведения звука попадания:", e);
+                }
+            },
+            playReload() {
+                try {
+                    this.init();
+                    this.resume();
+                    if (!this.ctx) return;
+                    const ctx = this.ctx;
+                    const now = ctx.currentTime;
+                    
+                    const osc1 = ctx.createOscillator();
+                    osc1.type = 'triangle';
+                    osc1.frequency.setValueAtTime(400, now);
+                    osc1.frequency.setValueAtTime(250, now + 0.1);
+                    
+                    const gain1 = ctx.createGain();
+                    gain1.gain.setValueAtTime(0.5, now);
+                    gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                    
+                    osc1.connect(gain1);
+                    gain1.connect(ctx.destination);
+                    osc1.start(now);
+                    osc1.stop(now + 0.2);
+                } catch (e) {
+                    console.warn("Ошибка воспроизведения звука перезарядки:", e);
+                }
+            },
+            playBossAlarm() {
+                try {
+                    this.init();
+                    this.resume();
+                    if (!this.ctx) return;
+                    const ctx = this.ctx;
+                    const now = ctx.currentTime;
+                    const osc = ctx.createOscillator();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(300, now);
+                    osc.frequency.linearRampToValueAtTime(600, now + 0.3);
+                    osc.frequency.linearRampToValueAtTime(300, now + 0.6);
+                    
+                    const gain = ctx.createGain();
+                    gain.gain.setValueAtTime(0.2, now);
+                    gain.gain.linearRampToValueAtTime(0.2, now + 0.4);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+                    
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.8);
+                } catch (e) {
+                    console.warn("Ошибка сирены босса:", e);
+                }
+            },
+            playPaperHit() {
+                try {
+                    this.init();
+                    this.resume();
+                    if (!this.ctx) return;
+                    const ctx = this.ctx;
+                    const now = ctx.currentTime;
+                    const osc = ctx.createOscillator();
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(100, now);
+                    
+                    const gain = ctx.createGain();
+                    gain.gain.setValueAtTime(0.8, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                    
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.3);
+                } catch (e) {
+                    console.warn("Ошибка звука попадания бумаги:", e);
+                }
+            },
+            playBgm() {
+                try {
+                    this.init();
+                    this.resume();
+                    if (this.bgmPlaying || !this.ctx) return;
+                    this.bgmPlaying = true;
+                    const ctx = this.ctx;
+                    
+                    let step = 0;
+                    this.bgmInterval = setInterval(() => {
+                        try {
+                            const now = ctx.currentTime;
+                            const osc = ctx.createOscillator();
+                            osc.type = 'triangle';
+                            
+                            const bassNotes = [40, 40, 48, 40, 45, 40, 50, 40];
+                            const note = bassNotes[step % bassNotes.length];
+                            osc.frequency.setValueAtTime(note, now);
+                            
+                            const filter = ctx.createBiquadFilter();
+                            filter.type = 'lowpass';
+                            filter.frequency.setValueAtTime(120, now);
+                            
+                            const gain = ctx.createGain();
+                            gain.gain.setValueAtTime(0.25, now);
+                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+                            
+                            osc.connect(filter);
+                            filter.connect(gain);
+                            gain.connect(ctx.destination);
+                            
+                            osc.start(now);
+                            osc.stop(now + 0.2);
+                            
+                            step++;
+                        } catch (err) {}
+                    }, 240);
+                } catch (e) {
+                    console.warn("Ошибка воспроизведения BGM:", e);
+                }
+            },
+            stopBgm() {
+                if (this.bgmInterval) {
+                    clearInterval(this.bgmInterval);
+                    this.bgmPlaying = false;
+                }
+            }
+        };
+    </script>
+
+    <!-- СТАЛЬНОЙ ТАКТИЧЕСКИЙ ПРИЦЕЛ -->
+    <div id="crosshair">
+        <svg viewBox="0 0 100 100" class="w-full h-full text-zinc-400 fill-none stroke-current stroke-2">
+            <circle cx="50" cy="50" r="35" stroke="#27272a" stroke-width="3"></circle>
+            <circle cx="50" cy="50" r="3" fill="#ef4444" stroke="none"></circle>
+            <line x1="50" y1="5" x2="50" y2="25" stroke="#27272a" stroke-width="3"></line>
+            <line x1="50" y1="75" x2="50" y2="95" stroke="#27272a" stroke-width="3"></line>
+            <line x1="5" y1="50" x2="25" y2="50" stroke="#27272a" stroke-width="3"></line>
+            <line x1="75" y1="50" x2="95" y2="50" stroke="#27272a" stroke-width="3"></line>
+        </svg>
+    </div>
+
+    <!-- КОНТЕЙНЕР ДЛЯ ОФИСНЫХ ПАПОК ДЕДЛАЙНОВ -->
+    <div id="spam-popups-container" class="absolute inset-0 pointer-events-none z-40 overflow-hidden"></div>
+
+    <!-- ЭФФЕКТЫ ПОВРЕЖДЕНИЯ ЭКРАНА -->
+    <div id="paper-splatters" class="absolute inset-0 pointer-events-none z-30 overflow-hidden"></div>
+
+    <!-- КРАСНЫЙ ЭКРАН СМЕРТИ (Вспышка урона) -->
+    <div id="damage-flash" class="absolute inset-0 bg-red-950 opacity-0 pointer-events-none z-50 transition-opacity duration-150"></div>
+
+    <!-- ==================== ЭКРАН 1: ГЛАВНОЕ МЕНЮ ==================== -->
+    <div id="screen-menu" class="absolute inset-0 flex flex-col justify-between p-8 bg-cover bg-center transition-opacity duration-1000 z-30 animate-none" style="background-image: linear-gradient(to bottom, rgba(15, 17, 26, 0.65), rgba(15, 17, 26, 0.98)), url('photo_2026-06-07_19-42-25.jpg');">
+        
+        <canvas id="menu-dust-canvas" class="absolute inset-0 pointer-events-none"></canvas>
+
+        <div class="relative z-10 flex justify-between items-start w-full">
+            <div class="flex flex-col">
+                <span class="text-xs tracking-widest text-zinc-400 uppercase font-semibold">Служебное использование</span>
+                <h2 class="text-2xl font-bold tracking-tight text-zinc-300 uppercase font-oswald">Офисный Зачистной Отряд</h2>
+            </div>
+            <div class="text-right flex flex-col items-end gap-2">
+                <span class="px-3 py-1 bg-red-950/80 border border-red-800 rounded text-xs font-bold text-red-200 uppercase tracking-widest">
+                    Кампания: ТАКТИЧЕСКИЙ ХАРДКОР 🔥
+                </span>
+                <span id="cheat-indicator" class="hidden px-3 py-1 bg-amber-900/40 border border-amber-600 rounded text-xs font-black text-amber-400 uppercase tracking-widest animate-pulse shadow-md">
+                    ЧИТ-МОД: МИНИГАН АКТИВИРОВАН 🛠️
+                </span>
+            </div>
+        </div>
+
+        <div class="relative z-10 flex flex-col items-center justify-center text-center my-auto max-w-4xl mx-auto">
+            <div id="menu-title-clickable" class="group cursor-pointer transform hover:scale-[1.02] transition-transform duration-300" onclick="toggleCheatMode()">
+                <h1 class="text-5xl md:text-8xl font-black tracking-tighter uppercase font-oswald text-zinc-100 mb-2 leading-none">
+                    ОФИСНЫЙ <span class="text-red-800 group-hover:text-amber-600 transition-colors duration-300">ЗАМЕС</span>
+                </h1>
+            </div>
+            
+            <p class="text-amber-600 font-bold tracking-wider text-sm md:text-xl uppercase mb-8">
+                С Днём Рождения, Главный Руководитель!
+            </p>
+
+            <div class="mb-10 bg-zinc-900/95 border border-zinc-800 rounded-xl p-5 max-w-lg w-full shadow-2xl">
+                <span class="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-3">Выберите сложность:</span>
+                <div class="grid grid-cols-3 gap-2">
+                    <button class="difficulty-btn px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-400 font-bold uppercase rounded border border-zinc-700 transition-all duration-200" onclick="showLifeDifficultyModal()">
+                        Легко
+                    </button>
+                    <button class="difficulty-btn px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-400 font-bold uppercase rounded border border-zinc-700 transition-all duration-200" onclick="showLifeDifficultyModal()">
+                        Средне
+                    </button>
+                    <button class="px-3 py-2 bg-red-950 text-xs text-red-200 font-black uppercase rounded border border-red-800 shadow-md transition-all duration-200">
+                        ХАРДКОР 🔥
+                    </button>
+                </div>
+                <p class="text-[10px] text-zinc-500 mt-3">Папа, нажми на заголовок игры, чтобы включить тяжелое вооружение! 🤫</p>
+            </div>
+
+            <div class="relative w-72 h-16 flex items-center justify-center">
+                <button id="start-btn" class="absolute w-full h-full bg-gradient-to-r from-zinc-800 to-zinc-900 hover:from-zinc-700 hover:to-zinc-800 text-zinc-200 font-oswald text-xl font-bold tracking-widest uppercase rounded border border-zinc-600 shadow-xl transition-all duration-300 flex items-center justify-center z-10 overflow-hidden">
+                    <span class="relative z-10 flex items-center gap-2">
+                        НАЧАТЬ ОПЕРАЦИЮ ⚔️
+                    </span>
+                </button>
+                <canvas id="shatter-canvas" class="absolute pointer-events-none z-20" style="display: none;"></canvas>
+            </div>
+        </div>
+
+        <div class="relative z-10 flex flex-col md:flex-row justify-between items-center text-zinc-500 text-xs border-t border-zinc-900 pt-4">
+            <p>© 2026 Разработано специально к юбилею Любимого Папы!</p>
+            <p class="mt-2 md:mt-0 text-amber-600 font-semibold">Наведи курсор или нажми на кнопку СТАРТ!</p>
+        </div>
+    </div>
+
+    <div id="life-difficulty-modal" class="fixed inset-0 bg-slate-950/95 hidden items-center justify-center z-50 p-4">
+        <div class="bg-zinc-900 border border-zinc-700 rounded-2xl p-8 max-w-md text-center shadow-2xl relative">
+            <span class="text-5xl block mb-4">💼🧔💥</span>
+            <h3 class="text-2xl font-bold text-amber-600 font-oswald uppercase tracking-wider mb-2">ОБРАТИТЕ ВНИМАНИЕ</h3>
+            <p class="text-zinc-300 text-sm leading-relaxed mb-6">
+                Папа, это реальная жизнь. <strong class="text-zinc-100">Здесь уровень сложности изменить нельзя!</strong> Нам приходится решать задачи на максимальной скорости каждый день. Только полный хардкор и только победа! 💪
+            </p>
+            <button class="px-6 py-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-oswald font-bold rounded border border-zinc-600 transition-all duration-200 transform active:scale-95 uppercase tracking-wide text-xs w-full" onclick="closeLifeDifficultyModal()">
+                Принять вызов 💪
+            </button>
+        </div>
+    </div>
+
+
+    <div id="screen-game" class="absolute inset-0 bg-slate-950 hidden transition-opacity duration-500 z-20">
+        <canvas id="game-canvas" class="w-full h-full block z-0"></canvas>
+
+        <div id="spam-popups-container" class="absolute inset-0 pointer-events-none z-40 overflow-hidden"></div>
+
+        <div class="absolute top-0 left-0 right-0 p-4 flex justify-between items-center bg-gradient-to-b from-zinc-950 to-transparent pointer-events-none select-none z-20">
+            <div class="flex items-center gap-3 w-1/3">
+                <div class="relative w-14 h-14 rounded overflow-hidden border border-zinc-700 shadow-md shrink-0">
+                    <img src="photo_2026-06-07_19-42-25.jpg" alt="Папа" class="w-full h-full object-cover object-top scale-125">
+                </div>
+                <div class="flex flex-col gap-0.5 w-full">
+                    <div class="flex justify-between text-[11px] font-semibold text-zinc-400">
+                        <span class="uppercase tracking-wider">ТЕРПЕНИЕ РУКОВОДИТЕЛЯ</span>
+                        <span id="hp-value">100%</span>
+                    </div>
+                    <div class="w-full h-2.5 bg-zinc-900 rounded overflow-hidden border border-zinc-800">
+                        <div id="hp-bar" class="h-full bg-gradient-to-r from-red-800 to-red-600 transition-all duration-100" style="width: 100%;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex flex-col items-center">
+                <span id="wave-indicator" class="text-xs text-amber-600 font-bold uppercase tracking-widest font-oswald animate-pulse">Волна 1 / 3</span>
+                <span id="score-val" class="text-4xl font-black text-zinc-100 font-oswald">00</span>
+                <span id="objective-val" class="text-[10px] text-zinc-500 uppercase font-semibold">Цель: 8 увольнений</span>
+            </div>
+
+            <div class="flex flex-col gap-1 w-1/3 items-end">
+                <div class="flex justify-between text-xs font-bold text-amber-600 w-full justify-end gap-2">
+                    <span class="uppercase tracking-wider">КОНЦЕНТРАЦИЯ (SPACE)</span>
+                    <span id="rage-value">0%</span>
+                </div>
+                <div class="w-full h-2.5 bg-zinc-900 rounded overflow-hidden border border-zinc-800">
+                    <div id="rage-bar" class="h-full bg-gradient-to-r from-amber-800 to-amber-600 transition-all duration-100" style="width: 0%;"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="absolute bottom-0 left-0 right-0 p-6 flex justify-between items-end bg-gradient-to-t from-zinc-950 to-transparent pointer-events-none z-20">
+            <div class="text-zinc-500 text-xs flex flex-col gap-1 w-1/3">
+                <p>🖱️ ЛКМ: Выстрел по врагам. Стреляй по спам-папкам для их закрытия.</p>
+                <p>⌨️ Клавиша R: Смена обоймы</p>
+                <p>⌨️ ПРОБЕЛ: Режим Концентрации (Замедление времени + автоогонь!)</p>
+                
+                <div class="flex items-center gap-2 mt-3 pointer-events-auto">
+                    <span class="text-zinc-400 font-bold uppercase tracking-widest font-oswald text-xs">Гранаты Ф-1 (Кнопка G):</span>
+                    <div class="flex gap-1" id="grenades-container"></div>
+                </div>
+            </div>
+
+            <!-- ОРУЖИЕ ОТ ПЕРВОГО ЛИЦА С РУКОЙ (John Wick Style) -->
+            <div class="absolute bottom-0 right-[12%] w-[420px] h-[320px] pointer-events-none z-30 flex justify-end items-end select-none">
+                <div id="weapon-viewport" class="relative w-full h-full transform-origin-bottom-right">
+                    <svg viewBox="0 0 400 300" class="w-full h-full drop-shadow-[0_25px_25px_rgba(0,0,0,0.95)]">
+                        <!-- Рука в черном костюме -->
+                        <path d="M 230 300 L 290 175 L 390 190 L 400 300 Z" fill="#18181b" stroke="#27272a" stroke-width="2"/>
+                        <!-- Белая манжета рубашки -->
+                        <path d="M 285 175 L 292 155 L 315 160 L 310 180 Z" fill="#f4f4f5"/>
+                        <!-- Темная перчатка тактическая -->
+                        <path d="M 288 160 L 305 130 L 345 135 L 340 170 Z" fill="#27272a" stroke="#09090b" stroke-width="2"/>
+                        <!-- Корпус пистолета USP .45 Matte Black -->
+                        <path d="M 120 70 L 280 70 L 295 105 L 280 150 L 250 155 L 235 115 L 120 115 Z" fill="#1c1917" stroke="#2e2a24" stroke-width="2.5"/>
+                        <!-- Затворная рама -->
+                        <path d="M 120 70 L 280 70 L 280 98 L 120 98 Z" fill="#3f3f46" stroke="#52525b" stroke-width="1"/>
+                        <!-- Мушка целик -->
+                        <ellipse cx="120" cy="84" rx="4" ry="7" fill="#09090b"/>
+                        <!-- Подствольный тактический ЛЦУ -->
+                        <rect x="130" y="102" width="45" height="10" rx="2" fill="#09090b"/>
+                    </svg>
+                    <!-- ВСПЫШКА ВЫСТРЕЛА ОТ ПЕРВОГО ЛИЦА -->
+                    <div id="muzzle-flash-1st" class="absolute left-[-10px] top-[40px] w-24 h-24 bg-[radial-gradient(circle_at_center,_#ffedd5_10%,_#f97316_40%,_transparent_70%)] rounded-full opacity-0 pointer-events-none scale-0 transition-all duration-75 mix-blend-screen z-30"></div>
+                </div>
+            </div>
+
+            <div class="flex flex-col items-end w-1/3">
+                <span class="text-xs text-zinc-500 font-bold uppercase tracking-widest font-oswald">Обойма</span>
+                <div class="flex items-center gap-2">
+                    <span id="ammo-val" class="text-5xl font-black text-zinc-200 font-oswald">8 / 8</span>
+                    <span id="reload-prompt" class="hidden text-xs px-2 py-1 bg-red-955 text-red-200 rounded animate-bounce font-bold">RELOAD (R)</span>
+                </div>
+                <div class="flex gap-1 mt-2" id="ammo-bullets-container"></div>
+            </div>
+        </div>
+
+        <div id="dad-mode-alert" class="absolute top-1/3 left-1/2 transform -translate-x-1/2 -translate-y-1/2 hidden flex-col items-center z-30 pointer-events-none animate-pulse">
+            <h2 class="text-5xl md:text-7xl font-black tracking-widest uppercase font-oswald text-amber-600 scale-110">МАКСИМАЛЬНАЯ КОНЦЕНТРАЦИЯ</h2>
+            <p class="text-zinc-200 font-bold text-sm uppercase tracking-widest bg-zinc-900/90 px-4 py-2 rounded border border-zinc-700 mt-2">ВРЕМЯ ЗАМЕДЛЕНО! ОГОНЬ БЕЗ ОГРАНИЧЕНИЙ!</p>
+        </div>
+
+        <div id="boss-alert" class="absolute top-1/4 left-0 right-0 hidden flex-col items-center justify-center z-30 pointer-events-none">
+            <div class="bg-zinc-900/95 border border-zinc-700 p-6 rounded-xl text-center max-w-lg mx-auto shadow-2xl">
+                <h3 class="text-2xl font-bold text-red-700 uppercase tracking-widest font-oswald mb-1">🚨 РУКОВОДСТВО ВОШЛО В КОРИДОР! 🚨</h3>
+                <p id="boss-name" class="text-xl font-bold text-zinc-100 mb-2">ГЛАВБУХ ТАМАРА СТЕПАНОВНА</p>
+                <p class="text-xs text-zinc-400">Она швыряет тонны отчётов дуплетом! Стреляйте на опережение!</p>
+            </div>
+        </div>
+    </div>
+
+
+    <div id="screen-gameover" class="absolute inset-0 bg-slate-950/98 flex flex-col items-center justify-center p-6 hidden z-30">
+        <div class="max-w-xl text-center bg-zinc-900 border border-zinc-800 rounded-2xl p-8 shadow-2xl">
+            <h2 class="text-5xl md:text-6xl font-black text-red-800 font-oswald uppercase tracking-tight mb-4">ОФИС ЗАВАЛЕН!</h2>
+            <p class="text-zinc-400 mb-6">
+                Сотрудники и дедлайны блокировали вашу работу. Но настоящий Батя никогда не сдаётся! Перегруппируемся и зачистим коридор заново!
+            </p>
+            
+            <div class="bg-zinc-950 border border-zinc-800 p-4 rounded mb-8 flex justify-around">
+                <div>
+                    <span class="block text-xs text-zinc-500 uppercase font-bold">Уволено бездельников</span>
+                    <span id="final-score" class="text-4xl font-bold text-zinc-300 font-oswald">0</span>
+                </div>
+                <div>
+                    <span class="block text-xs text-zinc-500 uppercase font-bold">Уровень зачистки</span>
+                    <span id="final-wave" class="text-4xl font-bold text-amber-600 font-oswald">0</span>
+                </div>
+            </div>
+
+            <button id="restart-btn" class="px-8 py-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-oswald text-lg font-bold rounded border border-zinc-600 transition-all duration-300 transform active:scale-95 uppercase tracking-wider w-full">
+                Попробовать ещё раз 🔄
+            </button>
+        </div>
+    </div>
+
+
+    <!-- ==================== ЭКРАН 4: ПОБЕДА (С ДНЕМ РОЖДЕНИЯ!) ==================== -->
+    <div id="screen-victory" class="absolute inset-0 bg-slate-950/98 flex flex-col items-center justify-center p-6 hidden z-30 overflow-hidden">
+        <canvas id="victory-confetti" class="absolute inset-0 pointer-events-none z-10"></canvas>
+        
+        <div class="relative z-20 max-w-2xl text-center bg-zinc-900 border border-zinc-700 rounded-2xl p-10 shadow-2xl">
+            <div class="text-6xl mb-4">🏆💼🎁</div>
+            <h2 class="text-5xl md:text-6xl font-black text-zinc-100 font-oswald uppercase tracking-tight mb-4">КАМПАНИЯ ПРОЙДЕНА!</h2>
+            
+            <h3 class="text-2xl md:text-3xl font-black text-amber-600 font-oswald uppercase tracking-widest mb-6 animate-pulse">
+                С ДНЁМ РОЖДЕНИЯ, ПАПА!!!
+            </h3>
+
+            <!-- СЕКРЕТНЫЙ ПОДАРОК В СТИМЕ -->
+            <div class="bg-amber-950/40 border border-amber-600 rounded-xl p-6 mb-8 animate-bounce shadow-xl shadow-amber-950/40">
+                <span class="text-4xl block mb-2">🎮🎁✨</span>
+                <p class="text-xl md:text-2xl font-black text-amber-400 font-oswald uppercase tracking-wider">
+                    ЗАЙДИ В СТИМ — ТАМ ТЕБЯ ЖДЕТ ПОДАРOК!
+                </p>
+            </div>
+
+            <p class="text-zinc-300 text-sm md:text-base mb-8 leading-relaxed">
+                Ты благополучно зачистил весь офис от бездельников, победил наглых сотрудников, стёр в порошок горы годовых правок и отчётов! Ты — Абсолютный Лидер и Главный Руководитель!
+            </p>
+
+            <div class="bg-zinc-950 border border-zinc-800 p-6 rounded-xl mb-8">
+                <p class="text-xs text-zinc-500 uppercase tracking-widest font-bold mb-2">Наградное поздравление от семьи</p>
+                <p class="text-zinc-100 font-serif italic text-lg">
+                    "Желаем тебе железного здоровья, непробиваемого терпения, стальных нервов и чтобы на твоём пути никогда не попадались душные отчёты! Будь всегда самым счастливым и любимым! С праздником!"
+                </p>
+            </div>
+
+            <div class="flex gap-4 justify-center">
+                <button id="victory-restart-btn" class="px-6 py-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-oswald font-bold rounded border border-zinc-600 transition-all uppercase tracking-wider text-sm">
+                    Сыграть ещё раз 🔄
+                </button>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        // Безопасный полифилл roundRect для старых браузеров
+        if (!HTMLCanvasElement.prototype.roundRect && !CanvasRenderingContext2D.prototype.roundRect) {
+            CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+                if (w < 2 * r) r = w / 2;
+                if (h < 2 * r) r = h / 2;
+                this.beginPath();
+                this.moveTo(x + r, y);
+                this.arcTo(x + w, y, x + w, y + h, r);
+                this.arcTo(x + w, y + h, x, y + h, r);
+                this.arcTo(x, y + h, x, y, r);
+                this.arcTo(x, y, x + w, y, r);
+                this.closePath();
+                return this;
+            };
+        }
+
+        const vpX = window.innerWidth / 2;
+        const vpY = window.innerHeight * 0.45; // Точка схода горизонта
+
+        // Трёхмерная проекция в коридоре
+        function getCoords(x3d, y3d, z3d) {
+            const fov = window.innerHeight * 0.45;
+            const scale = fov / z3d;
+            return {
+                x: (window.innerWidth / 2) + x3d * scale,
+                y: (window.innerHeight * 0.45) + y3d * scale,
+                size: scale
+            };
+        }
+
+        const screens = {
+            menu: document.getElementById('screen-menu'),
+            game: document.getElementById('screen-game'),
+            gameover: document.getElementById('screen-gameover'),
+            victory: document.getElementById('screen-victory')
+        };
+
+        const config = {
+            maxHp: 100,
+            maxAmmo: 8, 
+            rageToActivate: 100,
+            dadModeDuration: 6000 
+        };
+
+        // ТВОИ ИМЕНА И РЕАЛИСТИЧНЫЕ ФРАЗЫ ДЛЯ КАЖДОГО СЛУЖАЩЕГО!
+        const employeeData = [
+            { emoji: '🕶️', name: 'Аразка', text: 'Где отчёт?', deadText: 'Я ухожу!' },
+            { emoji: '😭', name: 'Артемка депрессивный', text: 'Мне так грустно...', deadText: 'Ухожу в тильт...' },
+            { emoji: '👵', name: 'бабка Астрахань', text: 'Раньше было лучше!', deadText: 'Ой, спина...' },
+            { emoji: '💃', name: 'Иришка чики пики', text: 'Чики-пики, всё пучком!', deadText: 'Ой, всё!' },
+            { emoji: '👩‍💼', name: 'Панова Иришка', text: 'Где дедлайн?', deadText: 'Правки отменены!' },
+            { emoji: '💅', name: 'Олеся Краснодар', text: 'В Краснодаре теплее!', deadText: 'Уезжаю на юг...' },
+            { emoji: '👨', name: 'Карен', text: 'Я требую объяснений!', deadText: 'Буду жаловаться!' },
+            { emoji: '💨', name: 'Владимир кальянная', text: 'Сделать забивочку?', deadText: 'Угли потухли...' },
+            { emoji: '🚬', name: 'Тимур кальянная', text: 'Дымим потихоньку?', deadText: 'Уголёк упал...' }
+        ];
+
+        const spamMessages = [
+            { title: "СРОЧНЫЙ СБОР", body: "Клиент прислал 150 правок в 18:59! Срочно переделать проект к утру!" },
+            { title: "КОНФЕРЕНЦ-КОЛЛ", body: "Директор собирает экстренное совещание по поводу чашек на кухне!" },
+            { title: "ПРИНТЕР СЛОМАЛСЯ", body: "Бумага зажевалась! Нужно срочно напечатать 800 страниц отчета!" },
+            { title: "СБОЙ СЕРВЕРА", body: "Стажер случайно удалил базу данных продакшена! Восстановите!" }
+        ];
+
+        // КЛАСС ПРОЦЕДУРНЫХ ТРЕЩИН НА СТЕКЛЕ ЭКРАНА С ПЛАВНЫМ ЗАТЯГИВАНИЕМ
+        class ScreenCrack {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.opacity = 1.0;
+                this.lines = [];
+                let numLines = Math.floor(Math.random() * 5) + 6;
+                for (let i = 0; i < numLines; i++) {
+                    let angle = (i / numLines) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
+                    let dist = Math.random() * 50 + 40;
+                    this.lines.push({
+                        x1: Math.cos(angle) * (dist * 0.15),
+                        y1: Math.sin(angle) * (dist * 0.15),
+                        x2: Math.cos(angle) * dist,
+                        y2: Math.sin(angle) * dist
+                    });
+                }
+            }
+            draw() {
+                ctx.save();
+                ctx.strokeStyle = `rgba(226, 232, 240, ${this.opacity * 0.6})`;
+                ctx.lineWidth = 1.2;
+                ctx.beginPath();
+                this.lines.forEach(l => {
+                    ctx.moveTo(this.x + l.x1, this.y + l.y1);
+                    ctx.lineTo(this.x + l.x2, this.y + l.y2);
+                    if (Math.random() > 0.6) {
+                        ctx.arc(this.x, this.y, Math.sqrt(l.x2*l.x2 + l.y2*l.y2) * 0.5, 0, Math.PI * 2);
+                    }
+                });
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        let gameState = {
+            currentScreen: 'menu',
+            hp: config.maxHp,
+            score: 0,
+            wave: 1,
+            ammo: config.maxAmmo,
+            isReloading: false,
+            reloadTimer: 0,
+            rage: 0,
+            dadModeActive: false,
+            dadModeTimer: 0,
+            enemies: [],
+            projectiles: [], 
+            particles: [], 
+            spamPopups: [], 
+            cracks: [], 
+            bossActive: false,
+            boss: null,
+            grenades: 3, 
+            killsInCurrentWave: 0,
+            lastFrameTime: 0,
+            keys: {},
+            screenShakeTime: 0,
+            cheatActive: false,
+            lastSpawnTime: 0,       
+            lastSpamSpawnTime: 0,
+            weaponBobX: 0,
+            weaponBobY: 0,
+            weaponRecoilY: 0,
+            weaponRecoilRot: 0,
+            weaponReloadYOffset: 0, 
+            weaponSpinAngle: 0
+        };
+
+        window.toggleCheatMode = function() {
+            gameState.cheatActive = !gameState.cheatActive;
+            audioSynth.playShoot(); 
+            
+            const indicator = document.getElementById('cheat-indicator');
+            if (gameState.cheatActive) {
+                indicator.classList.remove('hidden');
+                floatingTexts.push(new FloatingText(window.innerWidth / 2, window.innerHeight / 2, 'МИНИГАН РАЗБЛОКИРОВАН! 💥', '#d97706'));
+            } else {
+                indicator.classList.add('hidden');
+            }
+        }
+
+        window.showLifeDifficultyModal = function() {
+            audioSynth.playShoot();
+            const modal = document.getElementById('life-difficulty-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+        window.showLifeDifficultyModal = showLifeDifficultyModal;
+
+        function closeLifeDifficultyModal() {
+            audioSynth.playReload();
+            const modal = document.getElementById('life-difficulty-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+        window.closeLifeDifficultyModal = closeLifeDifficultyModal;
+
+        const menuDustCanvas = document.getElementById('menu-dust-canvas');
+        const mCtx = menuDustCanvas.getContext('2d');
+        let menuDustParticles = [];
+
+        function resizeMenuCanvas() {
+            menuDustCanvas.width = window.innerWidth;
+            menuDustCanvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeMenuCanvas);
+        resizeMenuCanvas();
+
+        for(let i = 0; i < 60; i++) {
+            menuDustParticles.push({
+                x: Math.random() * window.innerWidth,
+                y: Math.random() * window.innerHeight,
+                size: Math.random() * 2 + 1,
+                speedX: (Math.random() - 0.5) * 0.5,
+                speedY: (Math.random() - 0.3) * 0.4,
+                opacity: Math.random() * 0.5 + 0.1
+            });
+        }
+
+        function animateMenuDust() {
+            if (gameState.currentScreen !== 'menu') return;
+            mCtx.clearRect(0,0, menuDustCanvas.width, menuDustCanvas.height);
+            for(let i = 0; i < menuDustParticles.length; i++) {
+                let p = menuDustParticles[i];
+                mCtx.fillStyle = `rgba(214, 211, 209, ${p.opacity})`;
+                mCtx.beginPath();
+                mCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                mCtx.fill();
+                
+                p.x += p.speedX;
+                p.y += p.speedY;
+                if (p.y > menuDustCanvas.height) {
+                    p.y = -5;
+                    p.x = Math.random() * menuDustCanvas.width;
+                }
+                if (p.x < 0 || p.x > menuDustCanvas.width) {
+                    p.x = Math.random() * menuDustCanvas.width;
+                }
+            }
+            requestAnimationFrame(animateMenuDust);
+        }
+        animateMenuDust();
+
+
+        // ==================== РАЗРУШЕНИЕ КНОПКИ СТАРТ ====================
+        const startBtn = document.getElementById('start-btn');
+        const shatterCanvas = document.getElementById('shatter-canvas');
+        const sCtx = shatterCanvas.getContext('2d');
+        let isShattered = false;
+
+        function triggerShatterAnimation() {
+            if (isShattered) return;
+            isShattered = true;
+            
+            audioSynth.playShoot();
+            audioSynth.playShatter();
+            
+            const rect = startBtn.getBoundingClientRect();
+            
+            shatterCanvas.style.display = 'block';
+            shatterCanvas.width = rect.width + 100;
+            shatterCanvas.height = rect.height + 100;
+            shatterCanvas.style.left = '-50px';
+            shatterCanvas.style.top = '-50px';
+            
+            startBtn.style.opacity = '0';
+            startBtn.style.pointerEvents = 'none';
+
+            const shards = [];
+            const cols = 8;
+            const rows = 4;
+            const w = rect.width / cols;
+            const h = rect.height / rows;
+
+            const bulletX = rect.width / 2;
+            const bulletY = rect.height / 2;
+
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    const sx = c * w;
+                    const sy = r * h;
+                    
+                    const dx = sx + w/2 - bulletX;
+                    const dy = sy + h/2 - bulletY;
+                    const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+                    const force = 10 * (1 - dist / (rect.width));
+                    
+                    shards.push({
+                        sx: sx,
+                        sy: sy,
+                        w: w,
+                        h: h,
+                        x: sx + 50,
+                        y: sy + 50,
+                        vx: (dx / dist) * (force + Math.random() * 4),
+                        vy: (dy / dist) * (force + Math.random() * 4) - Math.random() * 2,
+                        angle: 0,
+                        vAngle: (Math.random() - 0.5) * 0.15,
+                        gravity: 0.35,
+                        opacity: 1
+                    });
+                }
+            }
+
+            const sparks = [];
+            for (let i = 0; i < 20; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 10 + 4;
+                sparks.push({
+                    x: bulletX + 50,
+                    y: bulletY + 50,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    color: i % 2 === 0 ? '#ea580c' : '#f59e0b',
+                    life: 1.0,
+                    decay: Math.random() * 0.06 + 0.03
+                });
+            }
+
+            function animateShatter() {
+                sCtx.clearRect(0, 0, shatterCanvas.width, shatterCanvas.height);
+                let active = false;
+
+                sCtx.fillStyle = '#27272a'; 
+                sCtx.strokeStyle = '#52525b';
+                sCtx.lineWidth = 1;
+
+                shards.forEach(s => {
+                    if (s.opacity > 0) {
+                        active = true;
+                        s.x += s.vx;
+                        s.y += s.vy;
+                        s.vy += s.gravity;
+                        s.angle += s.vAngle;
+                        s.opacity -= 0.018;
+
+                        sCtx.save();
+                        sCtx.translate(s.x, s.y);
+                        sCtx.rotate(s.angle);
+                        sCtx.globalAlpha = Math.max(0, s.opacity);
+                        
+                        sCtx.fillRect(-s.w/2, -s.h/2, s.w, s.h);
+                        sCtx.strokeRect(-s.w/2, -s.h/2, s.w, s.h);
+                        sCtx.restore();
+                    }
+                });
+
+                sparks.forEach(sp => {
+                    if (sp.life > 0) {
+                        active = true;
+                        sp.x += sp.vx;
+                        sp.y += sp.vy;
+                        sp.vy += 0.12;
+                        sp.life -= sp.decay;
+
+                        sCtx.fillStyle = sp.color;
+                        sCtx.globalAlpha = sp.life;
+                        sCtx.beginPath();
+                        sCtx.arc(sp.x, sp.y, Math.random() * 2 + 1, 0, Math.PI * 2);
+                        sCtx.fill();
+                    }
+                });
+
+                if (shards[0].opacity > 0.5) {
+                    sCtx.save();
+                    sCtx.fillStyle = '#0f111a';
+                    sCtx.beginPath();
+                    sCtx.arc(bulletX + 50, bulletY + 50, 9, 0, Math.PI * 2);
+                    sCtx.fill();
+                    sCtx.restore();
+                }
+
+                if (active) {
+                    requestAnimationFrame(animateShatter);
+                } else {
+                    shatterCanvas.style.display = 'none';
+                    switchScreen('game');
+                }
+            }
+            animateShatter();
+        }
+
+        startBtn.addEventListener('mouseenter', triggerShatterAnimation);
+        startBtn.addEventListener('click', triggerShatterAnimation);
+
+
+        // ==================== УПРАВЛЕНИЕ ЭКРАНАМИ ====================
+        function switchScreen(screenName) {
+            Object.keys(screens).forEach(name => {
+                screens[name].classList.add('hidden');
+            });
+            screens[screenName].classList.remove('hidden');
+            gameState.currentScreen = screenName;
+
+            const crosshair = document.getElementById('crosshair');
+            const body = document.getElementById('game-body');
+
+            if (screenName === 'game') {
+                body.classList.add('custom-cursor-active');
+                crosshair.style.display = 'block';
+                initGame();
+            } else {
+                body.classList.remove('custom-cursor-active');
+                crosshair.style.display = 'none';
+                audioSynth.stopBgm();
+                if (screenName === 'victory') {
+                    initVictoryConfetti();
+                }
+            }
+        }
+
+        document.getElementById('restart-btn').addEventListener('click', () => {
+            isShattered = false;
+            startBtn.style.opacity = '1';
+            startBtn.style.pointerEvents = 'auto';
+            switchScreen('menu');
+        });
+
+        document.getElementById('victory-restart-btn').addEventListener('click', () => {
+            isShattered = false;
+            startBtn.style.opacity = '1';
+            startBtn.style.pointerEvents = 'auto';
+            switchScreen('menu');
+        });
+
+
+        // ==================== ИГРОВОЙ ДВИЖОК ====================
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+
+        function resizeGameCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeGameCanvas);
+
+        function initGame() {
+            resizeGameCanvas();
+            audioSynth.playBgm();
+
+            gameState.hp = config.maxHp;
+            gameState.score = 0;
+            gameState.wave = 1;
+            gameState.killsInCurrentWave = 0;
+            gameState.ammo = gameState.cheatActive ? 999 : config.maxAmmo;
+            gameState.isReloading = false;
+            gameState.reloadTimer = 0;
+            gameState.rage = 0;
+            gameState.dadModeActive = false;
+            gameState.enemies = [];
+            gameState.projectiles = [];
+            gameState.particles = [];
+            gameState.spamPopups = [];
+            gameState.cracks = []; 
+            gameState.bossActive = false;
+            gameState.boss = null;
+            gameState.grenades = 3; 
+            gameState.screenShakeTime = 0;
+            gameState.lastSpawnTime = 0;         
+            gameState.lastSpamSpawnTime = 0;     
+            gameState.weaponBobX = 0;
+            gameState.weaponBobY = 0;
+            gameState.weaponRecoilY = 0;
+            gameState.weaponRecoilRot = 0;
+            gameState.weaponReloadYOffset = 0;
+            gameState.weaponSpinAngle = 0;
+            gameState.lastFrameTime = performance.now();
+
+            document.getElementById('paper-splatters').innerHTML = '';
+            document.getElementById('spam-popups-container').innerHTML = '';
+
+            updateUI();
+            
+            document.getElementById('crosshair').style.display = 'block';
+            requestAnimationFrame(gameLoop);
+        }
+
+        function updateUI() {
+            gameState.hp = Math.max(0, Math.min(100, gameState.hp));
+            document.getElementById('hp-value').innerText = `${Math.ceil(gameState.hp)}%`;
+            document.getElementById('hp-bar').style.width = `${gameState.hp}%`;
+            
+            document.getElementById('score-val').innerText = gameState.score < 10 ? `0${gameState.score}` : gameState.score;
+            document.getElementById('rage-value').innerText = `${Math.ceil(gameState.rage)}%`;
+            document.getElementById('rage-bar').style.width = `${gameState.rage}%`;
+
+            document.getElementById('wave-indicator').innerText = `Волна ${gameState.wave} / 3`;
+            if (gameState.wave === 1) {
+                document.getElementById('objective-val').innerText = `Цель: ${gameState.killsInCurrentWave} / 8 увольнений`;
+            } else if (gameState.wave === 2) {
+                if (gameState.bossActive) {
+                    document.getElementById('objective-val').innerText = `УВОЛЬТЕ ТАМАРУ СТЕПАНОВНУ!`;
+                } else {
+                    document.getElementById('objective-val').innerText = `Цель: ${gameState.killsInCurrentWave} / 12 увольнений`;
+                }
+            } else if (gameState.wave === 3) {
+                document.getElementById('objective-val').innerText = `ФИНАЛЬНЫЙ БОСС: ДИРЕКТОР АРТУР!`;
+            }
+
+            if (gameState.cheatActive) {
+                document.getElementById('ammo-val').innerText = `∞`;
+            } else {
+                document.getElementById('ammo-val').innerText = `${gameState.ammo} / ${config.maxAmmo}`;
+            }
+
+            const grenadesContainer = document.getElementById('grenades-container');
+            grenadesContainer.innerHTML = '';
+            for (let i = 0; i < gameState.grenades; i++) {
+                const g = document.createElement('button');
+                g.className = "w-10 h-10 bg-zinc-800 hover:bg-zinc-700 rounded-full flex items-center justify-center border border-zinc-600 shadow-md transform active:scale-95 transition-all text-lg animate-none";
+                g.innerHTML = "💣";
+                g.title = "Бросить гранату Ф-1 (G)";
+                g.onclick = (e) => {
+                    e.stopPropagation();
+                    useGrenade();
+                };
+                grenadesContainer.appendChild(g);
+            }
+
+            const bulletContainer = document.getElementById('ammo-bullets-container');
+            bulletContainer.innerHTML = '';
+            const ammoLimit = gameState.cheatActive ? 12 : config.maxAmmo;
+            for(let i=0; i<ammoLimit; i++) {
+                const b = document.createElement('div');
+                if (gameState.cheatActive) {
+                    b.className = `w-1.5 h-6 rounded-sm bg-amber-500 border border-amber-600 animate-pulse`;
+                } else {
+                    b.className = `w-2 h-6 rounded-sm ${i < gameState.ammo ? 'bg-amber-600 border border-amber-700 shadow-sm' : 'bg-zinc-800 border border-zinc-900'}`;
+                }
+                bulletContainer.appendChild(b);
+            }
+
+            if (gameState.ammo === 0 && !gameState.isReloading && !gameState.cheatActive) {
+                document.getElementById('reload-prompt').classList.remove('hidden');
+            } else {
+                document.getElementById('reload-prompt').classList.add('hidden');
+            }
+        }
+
+
+        // ==================== МЕХАНИКА ГРАНАТЫ УВОЛЬНЕНИЯ (💣) ====================
+        function useGrenade() {
+            if (gameState.currentScreen !== 'game' || gameState.grenades <= 0) return;
+            
+            gameState.grenades--;
+            audioSynth.playExplosion();
+            
+            document.getElementById('game-body').classList.add('screen-shake');
+            gameState.screenShakeTime = 500;
+            
+            const flash = document.getElementById('damage-flash');
+            flash.style.backgroundColor = '#451a03'; 
+            flash.style.opacity = '0.75';
+            setTimeout(() => {
+                flash.style.backgroundColor = '#450a0a'; 
+                flash.style.opacity = '0';
+            }, 300);
+
+            for (let i = 0; i < 40; i++) {
+                const rx = Math.random() * canvas.width;
+                const ry = Math.random() * canvas.height;
+                gameState.particles.push(new Particle(rx, ry, '🔥', '#d97706'));
+                gameState.particles.push(new Particle(rx, ry, '💨', '#78716c'));
+            }
+
+            gameState.enemies.forEach(enemy => {
+                gameState.score += 10;
+                gameState.killsInCurrentWave++;
+                for (let p=0; p<15; p++) {
+                    gameState.particles.push(new Particle(enemy.x, enemy.y - 80 * enemy.scale, '💥'));
+                }
+            });
+            gameState.enemies = [];
+            gameState.projectiles = [];
+
+            const popups = document.querySelectorAll('#spam-popups-container > div');
+            popups.forEach(pop => pop.remove());
+            gameState.spamPopups = [];
+
+            if (gameState.bossActive && gameState.boss) {
+                gameState.boss.hp -= 8;
+                floatingTexts.push(new FloatingText(gameState.boss.x, gameState.boss.y - 120, 'ВЗРЫВ -8 HP!', '#ef4444'));
+                if (gameState.boss.hp <= 0) {
+                    handleBossDefeat();
+                }
+            }
+
+            floatingTexts.push(new FloatingText(canvas.width / 2, canvas.height / 2, 'ГРАНАТА УВОЛЬНЕНИЯ! 💣', '#d97706'));
+            checkWaveProgression();
+            updateUI();
+        }
+
+
+        // ==================== ОФИСНЫЕ СПАМ-ПАПКИ С ТАЙМЕРОМ ДЕДЛАЙНА ====================
+        class SpamPopup {
+            constructor() {
+                this.id = 'spam-' + Date.now() + Math.random().toString(36).substring(2, 5);
+                const data = spamMessages[Math.floor(Math.random() * spamMessages.length)];
+                this.title = data.title;
+                this.body = data.body;
+                
+                this.w = 330;
+                this.h = 160;
+                this.x = Math.random() * (window.innerWidth - this.w - 100) + 50;
+                this.y = Math.random() * (window.innerHeight - this.h - 180) + 80;
+                
+                this.timeLeft = 4.2; 
+
+                this.dom = document.createElement('div');
+                this.dom.id = this.id;
+                this.dom.className = "spam-window absolute pointer-events-auto border border-zinc-700 bg-zinc-800 rounded p-4 shadow-xl flex flex-col justify-between z-50 transition-all duration-300";
+                this.dom.style.width = `${this.w}px`;
+                this.dom.style.height = `${this.h}px`;
+                this.dom.style.left = `${this.x}px`;
+                this.dom.style.top = `${this.y}px`;
+                this.dom.style.boxShadow = "10px 10px 0px rgba(0,0,0,0.5)";
+                
+                this.dom.innerHTML = `
+                    <div class="flex justify-between items-center border-b border-zinc-700 pb-2">
+                        <span class="text-red-700 font-bold text-xs uppercase tracking-wider">📁 ${this.title}</span>
+                        <div class="px-2 py-0.5 bg-zinc-700 rounded text-[10px] font-black text-zinc-300" id="${this.id}-timer">ДЕДЛАЙН: 4.2с</div>
+                    </div>
+                    <div class="text-zinc-300 text-[11px] font-medium leading-relaxed my-2">
+                        ${this.body}
+                    </div>
+                    <div class="flex justify-end gap-2 text-[10px]">
+                        <button class="px-3 py-1.5 bg-zinc-900 border border-zinc-600 rounded font-bold text-zinc-200 uppercase tracking-wider transition hover:bg-zinc-700 animate-none" onclick="shootSpamPopup('${this.id}', event)">
+                            АННУЛИРОВАТЬ ОТЧЁТ 💥
+                        </button>
+                    </div>
+                `;
+
+                document.getElementById('spam-popups-container').appendChild(this.dom);
+                audioSynth.playBossAlarm();
+            }
+
+            update(dt) {
+                this.timeLeft -= dt / 1000;
+                const timerEl = document.getElementById(`${this.id}-timer`);
+                if (timerEl) {
+                    timerEl.innerText = `ДЕДЛАЙН: ${Math.max(0, this.timeLeft).toFixed(1)}с`;
+                }
+
+                if (this.timeLeft <= 0) {
+                    gameState.hp -= 15; 
+                    triggerDamage();
+                    audioSynth.playExplosion();
+                    floatingTexts.push(new FloatingText(this.x + this.w/2, this.y + this.h/2, 'ДЕДЛАЙН ПРОСРОЧЕН! -15 HP', '#b91c1c'));
+                    
+                    for (let p=0; p<15; p++) {
+                        gameState.particles.push(new Particle(this.x + this.w/2, this.y + this.h/2, '📄'));
+                    }
+
+                    this.dom.remove();
+                    return true; 
+                }
+                return false;
+            }
+        }
+
+        function shootSpamPopup(id, event) {
+            if (event) {
+                event.stopPropagation();
+            }
+            const index = gameState.spamPopups.findIndex(p => p.id === id);
+            if (index !== -1) {
+                const pop = gameState.spamPopups[index];
+                
+                for (let p=0; p<15; p++) {
+                    gameState.particles.push(new Particle(pop.x + pop.w/2, pop.y + pop.h/2, '📄', '#d1d5db'));
+                }
+                
+                audioSynth.playShoot();
+                audioSynth.playHit();
+                
+                pop.dom.remove();
+                gameState.spamPopups.splice(index, 1);
+                
+                gameState.score += 5;
+                addRage(15); 
+                floatingTexts.push(new FloatingText(pop.x + pop.w/2, pop.y + pop.h/2, 'ОТЧЁТ АННУЛИРОВАН', '#e2e8f0'));
+                updateUI();
+            }
+        }
+        window.shootSpamPopup = shootSpamPopup;
+
+
+        // ==================== ОПРЕДЕЛЕНИЯ КЛАССОВ ОБЪЕКТОВ ====================
+
+        class Enemy {
+            constructor() {
+                this.x3d = (Math.random() - 0.5) * 1.4; // Коридор по ширине от -0.7 до 0.7
+                this.y3d = 1.0; // Строго на полу
+                this.z3d = 10.0; // Появление в глубине
+                this.isDead = false; 
+
+                // Повышенная хардкорная скорость бега
+                this.speed = (Math.random() * 0.042 + 0.032) * (1 + gameState.wave * 0.15);
+                
+                this.hasDash = Math.random() > 0.65; 
+                this.dashed = false;
+
+                const meta = employeeData[Math.floor(Math.random() * employeeData.length)];
+                this.emoji = meta.emoji;
+                this.name = meta.name;
+                this.text = meta.text;
+                this.deadText = meta.deadText;
+
+                // Тактическое количество HP врагов
+                this.hp = 2 + Math.floor(gameState.wave / 2);
+                this.maxHp = this.hp;
+
+                this.randomOffset = Math.random() * 100;
+                this.speechBubble = { text: this.text, duration: 2.0 };
+            }
+
+            update(dt) {
+                const mult = gameState.dadModeActive ? 0.3 : 1.0;
+                this.z3d -= this.speed * mult * (dt / 16.66);
+
+                if (this.hasDash && !this.dashed && this.z3d < 5.0) {
+                    this.speed *= 1.5; 
+                    this.dashed = true;
+                    this.speechBubble = { text: 'СРОЧНО НА ПОДПИСЬ! ⚡', duration: 1.5 };
+                }
+
+                // Если враг добежал вплотную
+                if (this.z3d <= 1.2) {
+                    gameState.hp -= 18; // Тяжелый урон в хардкоре
+                    triggerDamage();
+                    audioSynth.playPaperHit();
+                    
+                    const pos = getCoords(this.x3d, this.y3d, 1.2);
+                    spawnPaperSplatters(pos.x, pos.y - 100, '💼', true);
+                    
+                    // ДОБАВЛЯЕМ ТАКТИЧЕСКИЕ ТРЕЩИНЫ НА ЭКРАН ПРИ УДАРЕ
+                    gameState.cracks.push(new ScreenCrack(pos.x, pos.y - 150));
+                    
+                    this.isDead = true; 
+                }
+            }
+
+            draw(now) {
+                const pos = getCoords(this.x3d, this.y3d, this.z3d);
+                const scale = pos.size;
+
+                const headSizePx = 0.22 * scale;
+                const bodyWPx = 0.14 * scale;
+                const bodyHPx = 0.22 * scale;
+
+                ctx.save();
+                ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                ctx.shadowBlur = 10;
+
+                const runCycle = (now * 0.015) + this.randomOffset;
+                const legSwing = Math.sin(runCycle) * (0.08 * scale);
+                
+                ctx.strokeStyle = '#0c0a09'; 
+                ctx.lineWidth = Math.max(2, 0.035 * scale);
+                ctx.lineCap = 'round';
+
+                // Левая нога
+                ctx.beginPath();
+                ctx.moveTo(pos.x - bodyWPx / 4, pos.y - bodyHPx);
+                ctx.lineTo(pos.x - bodyWPx / 3 + legSwing, pos.y);
+                ctx.stroke();
+
+                // Правая нога
+                ctx.beginPath();
+                ctx.moveTo(pos.x + bodyWPx / 4, pos.y - bodyHPx);
+                ctx.lineTo(pos.x + bodyWPx / 3 - legSwing, pos.y);
+                ctx.stroke();
+
+                // Пиджак
+                ctx.fillStyle = '#27272a'; 
+                ctx.strokeStyle = '#18181b';
+                ctx.lineWidth = Math.max(1, 0.007 * scale);
+                ctx.beginPath();
+                ctx.roundRect(pos.x - bodyWPx / 2, pos.y - bodyHPx * 2, bodyWPx, bodyHPx, Math.max(1, 5 * (scale / 200)));
+                ctx.fill();
+                ctx.stroke();
+
+                // Белая рубашка
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.moveTo(pos.x - 0.02 * scale, pos.y - bodyHPx * 2);
+                ctx.lineTo(pos.x + 0.02 * scale, pos.y - bodyHPx * 2);
+                ctx.lineTo(pos.x, pos.y - bodyHPx * 2 + 0.05 * scale);
+                ctx.closePath();
+                ctx.fill();
+
+                // Галстук
+                ctx.fillStyle = '#991b1b';
+                ctx.beginPath();
+                ctx.moveTo(pos.x - 0.01 * scale, pos.y - bodyHPx * 2 + 0.01 * scale);
+                ctx.lineTo(pos.x + 0.01 * scale, pos.y - bodyHPx * 2 + 0.01 * scale);
+                ctx.lineTo(pos.x, pos.y - bodyHPx * 2 + 0.1 * scale);
+                ctx.closePath();
+                ctx.fill();
+
+                // Руки
+                ctx.strokeStyle = '#27272a';
+                ctx.lineWidth = Math.max(1, 0.025 * scale);
+                const armSwing = Math.cos(runCycle) * (0.07 * scale);
+                ctx.beginPath();
+                ctx.moveTo(pos.x - bodyWPx / 2, pos.y - bodyHPx * 1.9);
+                ctx.lineTo(pos.x - bodyWPx / 2 - 0.03 * scale, pos.y - bodyHPx * 1.5 + armSwing);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(pos.x + bodyWPx / 2, pos.y - bodyHPx * 1.9);
+                ctx.lineTo(pos.x + bodyWPx / 2 + 0.03 * scale, pos.y - bodyHPx * 1.5 - armSwing);
+                ctx.stroke();
+
+                // Голова
+                ctx.font = `${headSizePx}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(this.emoji, pos.x, pos.y - bodyHPx * 2.1);
+                ctx.restore();
+
+                // Имя
+                ctx.save();
+                ctx.fillStyle = '#a1a1aa';
+                ctx.font = `bold ${Math.max(10, 0.05 * scale)}px Montserrat`;
+                ctx.textAlign = 'center';
+                ctx.fillText(this.name, pos.x, pos.y - bodyHPx * 2.1 - headSizePx/1.7);
+
+                // Отрисовка здоровья
+                if (this.hp < this.maxHp) {
+                    const barW = bodyWPx * 1.5;
+                    const barH = Math.max(3, 0.018 * scale);
+                    ctx.fillStyle = '#1c1917';
+                    ctx.fillRect(pos.x - barW/2, pos.y - bodyHPx * 2.1 - headSizePx/1.7 - 12, barW, barH);
+                    ctx.fillStyle = '#b91c1c';
+                    ctx.fillRect(pos.x - barW/2, pos.y - bodyHPx * 2.1 - headSizePx/1.7 - 12, barW * (this.hp / this.maxHp), barH);
+                }
+
+                // Облако разговора
+                if (this.speechBubble && scale > 60) {
+                    const padding = 8;
+                    ctx.font = `bold ${Math.max(10, 0.04 * scale)}px Montserrat`;
+                    const textW = ctx.measureText(this.speechBubble.text).width;
+                    const bubbleH = 0.07 * scale;
+                    const bx = pos.x - textW / 2 - padding;
+                    const by = pos.y - bodyHPx * 2.1 - headSizePx/1.7 - 45 * (scale / 200);
+                    
+                    ctx.fillStyle = '#1c1917';
+                    ctx.strokeStyle = '#44403c';
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.roundRect(bx, by, textW + padding * 2, bubbleH + padding, 4);
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.fillStyle = '#e7e5e4';
+                    ctx.fillText(this.speechBubble.text, pos.x, by + bubbleH/1.1);
+                }
+                ctx.restore();
+            }
+
+            checkHit(mx, my) {
+                const pos = getCoords(this.x3d, this.y3d, this.z3d);
+                const scale = pos.size;
+                const headSizePx = 0.22 * scale;
+                const bodyHPx = 0.22 * scale;
+                const totalH = bodyHPx * 2 + headSizePx;
+                
+                const halfW = headSizePx * 0.8;
+                return (mx > pos.x - halfW && mx < pos.x + halfW &&
+                        my > pos.y - totalH && my < pos.y);
+            }
+        }
+
+
+        // ==================== БОССЫ И ИХ МЕХАНИКА ====================
+        const bossesData = [
+            { name: 'ГЛАВБУХ ТАМАРА СТЕПАНОВНА 👵', emoji: '👵', hp: 22, maxHp: 22, subtitle: 'Швыряет годовые балансы!' }, 
+            { name: 'ФИНАЛЬНЫЙ БОСС: ДИРЕКТОР АРТУР 👹', emoji: '👹', hp: 32, maxHp: 32, subtitle: 'Абсолютный генератор правок!' } 
+        ];
+
+        class Boss {
+            constructor() {
+                const data = bossesData[Math.min(gameState.wave - 2, bossesData.length - 1)];
+                this.name = data.name;
+                this.emoji = data.emoji;
+                this.hp = data.hp;
+                this.maxHp = this.hp;
+                this.subtitle = data.subtitle;
+
+                this.x3d = 0;
+                this.y3d = 1.0;
+                this.z3d = 10.0;
+                this.speed = 0.035;
+                
+                this.throwCooldown = 1200; 
+                this.lastThrowTime = 0;
+
+                audioSynth.playBossAlarm();
+                
+                const alertDiv = document.getElementById('boss-alert');
+                document.getElementById('boss-name').innerText = this.name;
+                alertDiv.classList.remove('hidden');
+                setTimeout(() => alertDiv.classList.add('hidden'), 4000);
+            }
+
+            update(dt, now) {
+                const mult = gameState.dadModeActive ? 0.3 : 1.0;
+                if (this.z3d > 2.0) {
+                    this.z3d -= this.speed * mult * (dt / 16.66);
+                } else {
+                    this.x3d = Math.sin(now / 400) * 0.4;
+                    
+                    if (now - this.lastThrowTime > this.throwCooldown) {
+                        this.lastThrowTime = now;
+                        this.throwDocument();
+                    }
+                }
+            }
+
+            throwDocument() {
+                const docEmoji1 = Math.random() > 0.5 ? '📁' : '📄';
+                const docEmoji2 = Math.random() > 0.5 ? '📊' : '📋';
+                
+                gameState.projectiles.push(new BossProjectile(this.x3d, this.y3d - 0.6, this.z3d, docEmoji1, 'ПРАВКИ! 📁', -0.3));
+                gameState.projectiles.push(new BossProjectile(this.x3d, this.y3d - 0.6, this.z3d, docEmoji2, 'ОТЧЁТ! 📄', 0.3));
+            }
+
+            draw() {
+                const pos = getCoords(this.x3d, this.y3d, this.z3d);
+                const scale = pos.size;
+
+                const headSizePx = 0.35 * scale;
+                const bodyWPx = 0.22 * scale;
+                const bodyHPx = 0.35 * scale;
+
+                ctx.save();
+                ctx.shadowColor = 'rgba(0,0,0,0.6)';
+                ctx.shadowBlur = 15;
+
+                // Плечи костюма
+                ctx.fillStyle = '#1c1917';
+                ctx.strokeStyle = '#44403c';
+                ctx.lineWidth = Math.max(1, 0.01 * scale);
+                ctx.beginPath();
+                ctx.roundRect(pos.x - bodyWPx / 2, pos.y - bodyHPx * 1.5, bodyWPx, bodyHPx, Math.max(1, 8 * (scale / 200)));
+                ctx.fill();
+                ctx.stroke();
+
+                // Голова
+                ctx.font = `${headSizePx}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(this.emoji, pos.x, pos.y - bodyHPx * 1.7);
+                ctx.restore();
+
+                // Шкала здоровья
+                ctx.save();
+                const barW = 300;
+                const barH = 14;
+                const bx = pos.x - barW / 2;
+                const by = pos.y - bodyHPx * 2.1 - headSizePx/2;
+
+                ctx.fillStyle = '#1c1917';
+                ctx.beginPath();
+                ctx.roundRect(bx, by, barW, barH, 4);
+                ctx.fill();
+                
+                ctx.fillStyle = '#7f1d1d';
+                ctx.beginPath();
+                ctx.roundRect(bx, by, barW * (this.hp / this.maxHp), barH, 4);
+                ctx.fill();
+
+                ctx.fillStyle = '#f5f5f4';
+                ctx.font = 'bold 10px Montserrat';
+                ctx.textAlign = 'center';
+                ctx.fillText(`ЗДОРОВЬЕ: ${Math.ceil(this.hp)} / ${this.maxHp}`, pos.x, by + 11);
+
+                ctx.font = 'bold 16px Oswald';
+                ctx.fillStyle = '#f5f5f4';
+                ctx.fillText(this.name, pos.x, by - 12);
+                ctx.restore();
+            }
+
+            checkHit(mx, my) {
+                const pos = getCoords(this.x3d, this.y3d, this.z3d);
+                const scale = pos.size;
+                const headSizePx = 0.35 * scale;
+                const bodyHPx = 0.35 * scale;
+                const totalH = bodyHPx * 1.5 + headSizePx;
+                
+                const halfW = headSizePx * 0.8;
+                return (mx > pos.x - halfW && mx < pos.x + halfW &&
+                        my > pos.y - totalH && my < pos.y);
+            }
+        }
+
+        class BossProjectile {
+            constructor(x3d, y3d, z3d, emoji, text, xDir = 0) {
+                this.x3d = x3d;
+                this.y3d = y3d;
+                this.z3d = z3d;
+                this.emoji = emoji;
+                this.text = text;
+                this.speed = 0.09; 
+                this.angle = 0;
+                this.rotSpeed = (Math.random() - 0.5) * 0.1;
+                this.xDir = xDir; 
+                this.isDead = false; 
+            }
+
+            update(dt) {
+                const mult = gameState.dadModeActive ? 0.3 : 1.0;
+                this.z3d -= this.speed * mult * (dt / 16.66);
+                this.x3d += this.xDir * 0.05 * mult * (dt / 16.66);
+
+                if (this.z3d <= 1.2) {
+                    gameState.hp -= 15; 
+                    triggerDamage();
+                    audioSynth.playPaperHit();
+                    
+                    const pos = getCoords(this.x3d, this.y3d, 1.2);
+                    spawnPaperSplatters(pos.x, pos.y, this.emoji, true);
+                    
+                    // ДОБАВЛЯЕМ ТАКТИЧЕСКИЕ ТРЕЩИНЫ НА ЭКРАН ПРИ ПОПАДАНИИ СНАРЯДОВ
+                    gameState.cracks.push(new ScreenCrack(pos.x, pos.y));
+                    
+                    this.isDead = true;
+                }
+            }
+
+            draw() {
+                const pos = getCoords(this.x3d, this.y3d, this.z3d);
+                const size = 0.35 * pos.size; 
+                
+                ctx.save();
+                ctx.translate(pos.x, pos.y);
+                ctx.rotate(this.angle);
+                ctx.font = `${size}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                ctx.shadowBlur = 15;
+                ctx.fillText(this.emoji, 0, 0);
+                
+                if (pos.size > 100) {
+                    ctx.font = `bold ${Math.max(10, 0.06 * pos.size)}px Montserrat`;
+                    ctx.fillStyle = '#ef4444';
+                    ctx.fillText(this.text, 0, -size / 2 - 5);
+                }
+                ctx.restore();
+                this.angle += this.rotSpeed;
+            }
+
+            checkHit(mx, my) {
+                const pos = getCoords(this.x3d, this.y3d, this.z3d);
+                const size = 0.35 * pos.size;
+                const dist = Math.sqrt((pos.x - mx)**2 + (pos.y - my)**2);
+                return dist < Math.max(30, size);
+            }
+        }
+
+        class Particle {
+            constructor(x, y, emoji = null, color = '#78716c', isSmoke = false) {
+                this.x = x;
+                this.y = y;
+                this.emoji = emoji;
+                this.color = color;
+                this.isSmoke = isSmoke;
+                if (isSmoke) {
+                    this.vx = (Math.random() - 0.5) * 1.5 - 1.0; 
+                    this.vy = -Math.random() * 2 - 1; 
+                    this.gravity = -0.015; 
+                    this.size = Math.random() * 8 + 6;
+                    this.life = 1.0;
+                    this.decay = Math.random() * 0.025 + 0.015;
+                } else {
+                    this.vx = (Math.random() - 0.5) * 12;
+                    this.vy = (Math.random() - 0.5) * 12 - 5;
+                    this.gravity = 0.25;
+                    this.life = 1.0;
+                    this.decay = Math.random() * 0.02 + 0.015;
+                    this.size = Math.random() * 0.5 + 0.5;
+                }
+                this.angle = Math.random() * Math.PI * 2;
+                this.rotSpeed = (Math.random() - 0.5) * 0.2;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += this.gravity;
+                this.life -= this.decay;
+                if (this.isSmoke) {
+                    this.size += 0.22; 
+                } else {
+                    this.angle += this.rotSpeed;
+                }
+                return this.life <= 0;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = this.life;
+                ctx.translate(this.x, this.y);
+
+                if (this.isSmoke) {
+                    ctx.fillStyle = 'rgba(168, 162, 158, 0.35)'; 
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.size, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (this.emoji) {
+                    ctx.rotate(this.angle);
+                    ctx.font = `${30 * this.size}px Arial`;
+                    ctx.fillText(this.emoji, 0, 0);
+                } else {
+                    ctx.rotate(this.angle);
+                    ctx.fillStyle = this.color;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 6 * this.size, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+        }
+
+
+        // ==================== ОФИСНЫЕ ТЕКСТЫ И НАЛИПАНИЕ НА ЭКРАН ====================
+        function spawnPaperSplatters(x, y, emoji, isSplat = false) {
+            const paperContainer = document.getElementById('paper-splatters');
+            const splat = document.createElement('div');
+            splat.className = "absolute pointer-events-none transition-all duration-1000 select-none flex flex-col items-center justify-center";
+            
+            const left = Math.min(Math.max(10, x - 50 + Math.random() * 100), window.innerWidth - 120);
+            const top = Math.min(Math.max(10, y - 50 + Math.random() * 100), window.innerHeight - 120);
+            
+            splat.style.left = `${left}px`;
+            splat.style.top = `${top}px`;
+            
+            const rotation = (Math.random() - 0.5) * 60;
+            splat.style.transform = `rotate(${rotation}deg) scale(0.1)`;
+            
+            if (isSplat) {
+                splat.innerHTML = `
+                    <span class="text-7xl filter drop-shadow-md">${emoji}</span>
+                    <span class="bg-zinc-800 text-zinc-100 font-bold text-xs px-2 py-1 uppercase rounded border border-zinc-600 mt-2 tracking-wider">ОФИСНЫЙ СБОЙ!</span>
+                `;
+            } else {
+                splat.innerHTML = `
+                    <span class="text-5xl filter drop-shadow-md">💥</span>
+                `;
+            }
+
+            paperContainer.appendChild(splat);
+            
+            setTimeout(() => {
+                splat.style.transform = `rotate(${rotation}deg) scale(1.0)`;
+            }, 50);
+
+            setTimeout(() => {
+                splat.style.opacity = '0';
+                splat.style.transform = `rotate(${rotation}deg) scale(0.5) translateY(100px)`;
+                setTimeout(() => splat.remove(), 1000);
+            }, 4000);
+        }
+
+        function triggerDamage() {
+            document.getElementById('game-body').classList.add('screen-shake');
+            gameState.screenShakeTime = 300; 
+            
+            const flash = document.getElementById('damage-flash');
+            flash.style.opacity = '0.6';
+            setTimeout(() => {
+                flash.style.opacity = '0';
+            }, 150);
+            updateUI();
+        }
+
+        class FloatingText {
+            constructor(x, y, text, color = '#d4d4d8') {
+                this.x = x;
+                this.y = y;
+                this.text = text;
+                this.color = color;
+                this.vy = -3;
+                this.life = 1.0;
+                this.decay = 0.02;
+            }
+            update() {
+                this.y += this.vy;
+                this.life -= this.decay;
+                return this.life <= 0;
+            }
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = this.life;
+                ctx.font = 'bold 22px Oswald';
+                ctx.fillStyle = this.color;
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 3;
+                ctx.textAlign = 'center';
+                ctx.strokeText(this.text, this.x, this.y);
+                ctx.fillText(this.text, this.x, this.y);
+                ctx.restore();
+            }
+        }
+        let floatingTexts = [];
+
+
+        // ==================== ВЗАИМОДЕЙСТВИЕ И СТРЕЛЬБА ====================
+        let lastShootTime = 0;
+        
+        function getShootCooldown() {
+            return gameState.cheatActive ? 60 : 250;
+        }
+
+        function spawnGunSmoke() {
+            let leftEdge = window.innerWidth * 0.88 - 420;
+            let topEdge = window.innerHeight - 320;
+            let muzzleX = leftEdge + 105 + gameState.weaponBobX;
+            let muzzleY = topEdge + 101 + gameState.weaponBobY + gameState.weaponRecoilY + gameState.weaponReloadYOffset;
+
+            let numSmoke = Math.floor(Math.random() * 2) + 2;
+            for(let i = 0; i < numSmoke; i++) {
+                gameState.particles.push(new Particle(muzzleX, muzzleY, null, null, true));
+            }
+        }
+
+        function triggerShoot(mx, my) {
+            const now = performance.now();
+            if (gameState.isReloading) return;
+            
+            if (!gameState.dadModeActive && !gameState.cheatActive) {
+                if (now - lastShootTime < getShootCooldown()) return;
+                if (gameState.ammo <= 0) {
+                    audioSynth.playReload();
+                    reloadWeapon();
+                    return;
+                }
+                gameState.ammo--;
+            } else if (gameState.cheatActive) {
+                if (now - lastShootTime < getShootCooldown()) return;
+                gameState.ammo = 999;
+            }
+            
+            lastShootTime = now;
+            audioSynth.playShoot();
+            
+            spawnGunSmoke();
+
+            gameState.weaponRecoilY = -70; 
+            gameState.weaponRecoilRot = -16;
+
+            const flash1st = document.getElementById('muzzle-flash-1st');
+
+            if (flash1st) {
+                flash1st.style.opacity = '1';
+                flash1st.style.transform = 'scale(1)';
+                setTimeout(() => {
+                    flash1st.style.opacity = '0';
+                    flash1st.style.transform = 'scale(0)';
+                }, 50);
+            }
+
+            createBulletHoleOnScreen(mx, my);
+
+            let hitTarget = false;
+
+            for (let i = gameState.spamPopups.length - 1; i >= 0; i--) {
+                const pop = gameState.spamPopups[i];
+                if (mx >= pop.x && mx <= pop.x + pop.w && my >= pop.y && my <= pop.y + pop.h) {
+                    hitTarget = true;
+                    window.shootSpamPopup(pop.id);
+                    break;
+                }
+            }
+
+            if (hitTarget) {
+                updateUI();
+                return;
+            }
+
+            for (let i = gameState.projectiles.length - 1; i >= 0; i--) {
+                let proj = gameState.projectiles[i];
+                if (proj.checkHit(mx, my)) {
+                    hitTarget = true;
+                    for (let p=0; p<15; p++) {
+                        gameState.particles.push(new Particle(proj.x, proj.y, '📄', '#e2e8f0'));
+                    }
+                    audioSynth.playHit();
+                    proj.isDead = true; 
+                    
+                    gameState.score += 2;
+                    floatingTexts.push(new FloatingText(mx, my, 'ДОКУМЕНТ СБИТ!', '#e2e8f0'));
+                    addRage(15); 
+                    break;
+                }
+            }
+
+            if (hitTarget) {
+                updateUI();
+                return;
+            }
+
+            if (gameState.bossActive && gameState.boss) {
+                if (gameState.boss.checkHit(mx, my)) {
+                    gameState.boss.hp--;
+                    audioSynth.playHit();
+                    
+                    for (let p=0; p<10; p++) {
+                        gameState.particles.push(new Particle(mx, my, null, '#44403c'));
+                    }
+                    
+                    floatingTexts.push(new FloatingText(mx, my, '-1 HP', '#ef4444'));
+
+                    if (gameState.boss.hp <= 0) {
+                        handleBossDefeat();
+                    }
+                    addRage(20); 
+                    updateUI();
+                    return;
+                }
+            }
+
+            for (let i = gameState.enemies.length - 1; i >= 0; i--) {
+                let enemy = gameState.enemies[i];
+                if (enemy.checkHit(mx, my)) {
+                    enemy.hp--;
+                    audioSynth.playHit(); 
+                    
+                    for (let p=0; p<8; p++) {
+                        gameState.particles.push(new Particle(mx, my, null, '#78716c'));
+                    }
+
+                    if (enemy.hp <= 0) {
+                        for (let p=0; p<15; p++) {
+                            gameState.particles.push(new Particle(enemy.x, enemy.y - 80 * enemy.scale, enemy.emoji));
+                        }
+                        floatingTexts.push(new FloatingText(enemy.x, enemy.y - 120 * enemy.scale, enemy.deadText, '#a1a1aa'));
+                        
+                        enemy.isDead = true; 
+                        gameState.score += 10;
+                        gameState.killsInCurrentWave++;
+                        addRage(15); 
+                        
+                        checkWaveProgression();
+                    } else {
+                        enemy.speechBubble = { text: 'Ай! Понял!', duration: 1.0 };
+                        floatingTexts.push(new FloatingText(enemy.x, enemy.y - 120 * enemy.scale, 'ПОПАЛ!', '#a1a1aa'));
+                    }
+                    
+                    updateUI();
+                    return;
+                }
+            }
+            
+            updateUI();
+        }
+
+        function handleBossDefeat() {
+            for (let p=0; p<40; p++) {
+                gameState.particles.push(new Particle(gameState.boss.x, gameState.boss.y, '💀', '#18181b'));
+            }
+            floatingTexts.push(new FloatingText(gameState.boss.x, gameState.boss.y - 100, 'ЛИКВИДИРОВАН!', '#fbbf24'));
+            
+            gameState.bossActive = false;
+            gameState.boss = null;
+            gameState.score += 50;
+
+            if (gameState.wave === 2) {
+                gameState.wave = 3;
+                gameState.killsInCurrentWave = 0;
+                floatingTexts.push(new FloatingText(canvas.width / 2, canvas.height / 2, 'ВОЛНА 3: ДИРЕКТОР АРТУР!', '#991b1b'));
+            } else if (gameState.wave === 3) {
+                setTimeout(() => switchScreen('victory'), 1500);
+            }
+        }
+
+        function checkWaveProgression() {
+            if (gameState.bossActive) return;
+
+            if (gameState.wave === 1 && gameState.killsInCurrentWave >= 8) { 
+                gameState.wave = 2;
+                gameState.killsInCurrentWave = 0;
+                floatingTexts.push(new FloatingText(canvas.width / 2, canvas.height / 2, 'ВОЛНА 2', '#fbbf24'));
+            } else if (gameState.wave === 2 && gameState.killsInCurrentWave >= 12 && !gameState.bossActive) { 
+                gameState.bossActive = true;
+                gameState.boss = new Boss();
+            }
+        }
+
+        function addRage(amount) {
+            if (gameState.dadModeActive) return;
+            gameState.rage = Math.min(config.rageToActivate, gameState.rage + amount);
+            if (gameState.rage >= config.rageToActivate) {
+                floatingTexts.push(new FloatingText(canvas.width / 2, canvas.height - 200, 'КОНЦЕНТРАЦИЯ: ПРОБЕЛ', '#fbbf24'));
+            }
+        }
+
+        function activateDadMode() {
+            if (gameState.rage < config.rageToActivate || gameState.dadModeActive) return;
+            
+            gameState.dadModeActive = true;
+            gameState.dadModeTimer = config.dadModeDuration;
+            gameState.rage = 100;
+
+            const alert = document.getElementById('dad-mode-alert');
+            alert.classList.remove('hidden');
+
+            audioSynth.playReload();
+            floatingTexts.push(new FloatingText(canvas.width / 2, canvas.height / 2, 'КОНЦЕНТРАЦИЯ АКТИВНА!', '#fbbf24'));
+        }
+
+        function deactivateDadMode() {
+            gameState.dadModeActive = false;
+            gameState.rage = 0;
+            document.getElementById('dad-mode-alert').classList.add('hidden');
+            updateUI();
+        }
+
+        function createBulletHoleOnScreen(x, y) {
+            const hole = document.createElement('div');
+            hole.className = 'bullet-hole';
+            hole.style.left = `${x - 11}px`;
+            hole.style.top = `${y - 11}px`;
+            
+            const angle = Math.floor(Math.random() * 360);
+            hole.style.setProperty('--angle', angle);
+            
+            document.body.appendChild(hole);
+
+            setTimeout(() => {
+                hole.style.transition = 'opacity 1s';
+                hole.style.opacity = '0';
+                setTimeout(() => hole.remove(), 1000);
+            }, 5000);
+        }
+
+        function reloadWeapon() {
+            if (gameState.isReloading || gameState.ammo === config.maxAmmo || gameState.cheatActive) return;
+            gameState.isReloading = true;
+            gameState.reloadTimer = 0;
+            audioSynth.playReload();
+            document.getElementById('reload-prompt').innerText = 'ПЕРЕЗАРЯДКА...';
+            document.getElementById('reload-prompt').classList.remove('hidden');
+        }
+
+
+        // ==================== РЕАЛИСТИЧНЫЙ 3D-КОРИДОР С ОФИСНОЙ СТРУКТУРОЙ ====================
+        function drawRealisticCorridor() {
+            const vpX = canvas.width / 2;
+            const vpY = canvas.height * 0.45; 
+
+            const farW = canvas.width * 0.16;
+            const farH = canvas.height * 0.18;
+
+            const fTL = { x: vpX - farW/2, y: vpY - farH/2 };
+            const fTR = { x: vpX + farW/2, y: vpY - farH/2 };
+            const fBL = { x: vpX - farW/2, y: vpY + farH/2 };
+            const fBR = { x: vpX + farW/2, y: vpY + farH/2 };
+
+            // 1. Потолок ("Армстронг")
+            ctx.fillStyle = '#1c1917'; 
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(canvas.width, 0);
+            ctx.lineTo(fTR.x, fTR.y);
+            ctx.lineTo(fTL.x, fTL.y);
+            ctx.closePath();
+            ctx.fill();
+
+            // Продольные стыки потолочных плит в перспективе
+            ctx.strokeStyle = '#2d2a24';
+            ctx.lineWidth = 2;
+            const ceilingLinesCount = 6;
+            for(let i = 0; i <= ceilingLinesCount; i++) {
+                const k = i / ceilingLinesCount;
+                const xStart = canvas.width * k;
+                const xEnd = fTL.x + farW * k;
+                ctx.beginPath();
+                ctx.moveTo(xStart, 0);
+                ctx.lineTo(xEnd, fTL.y);
+                ctx.stroke();
+            }
+
+            // Поперечные деления потолочных плит ("Армстронг") в перспективе
+            ctx.strokeStyle = '#2d2a24';
+            ctx.lineWidth = 1.5;
+            const transversalCeilingLines = [];
+            for (let j = 0.0; j <= 1.0; j += 0.15) {
+                const py = fTL.y * Math.pow(j, 1.8);
+                transversalCeilingLines.push(py);
+                
+                const xL = fTL.x * (py / fTL.y);
+                const xR = canvas.width + (fTR.x - canvas.width) * (py / fTL.y);
+                
+                ctx.beginPath();
+                ctx.moveTo(xL, py);
+                ctx.lineTo(xR, py);
+                ctx.stroke();
+            }
+
+            // Люминесцентные лампы
+            ctx.fillStyle = '#fafaf9'; 
+            ctx.strokeStyle = '#44403c'; 
+            ctx.lineWidth = 1;
+            
+            for (let r = 0; r < transversalCeilingLines.length - 1; r++) {
+                if (r % 2 === 1) { 
+                    const yTop = transversalCeilingLines[r];
+                    const yBot = transversalCeilingLines[r + 1];
+                    
+                    const kL1 = 1.5 / ceilingLinesCount;
+                    const kL2 = 2.5 / ceilingLinesCount;
+                    const xTL1 = (fTL.x * (yTop / fTL.y)) + (canvas.width + (fTR.x - canvas.width) * (yTop / fTL.y) - (fTL.x * (yTop / fTL.y))) * kL1;
+                    const xTL2 = (fTL.x * (yTop / fTL.y)) + (canvas.width + (fTR.x - canvas.width) * (yTop / fTL.y) - (fTL.x * (yTop / fTL.y))) * kL2;
+                    const xBL1 = (fTL.x * (yBot / fTL.y)) + (canvas.width + (fTR.x - canvas.width) * (yBot / fTL.y) - (fTL.x * (yBot / fTL.y))) * kL1;
+                    const xBL2 = (fTL.x * (yBot / fTL.y)) + (canvas.width + (fTR.x - canvas.width) * (yBot / fTL.y) - (fTL.x * (yBot / fTL.y))) * kL2;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(xTL1, yTop);
+                    ctx.lineTo(xTL2, yTop);
+                    ctx.lineTo(xBL2, yBot);
+                    ctx.lineTo(xBL1, yBot);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+
+                    const kR1 = 3.5 / ceilingLinesCount;
+                    const kR2 = 4.5 / ceilingLinesCount;
+                    const xTR1 = (fTL.x * (yTop / fTL.y)) + (canvas.width + (fTR.x - canvas.width) * (yTop / fTL.y) - (fTL.x * (yTop / fTL.y))) * kR1;
+                    const xTR2 = (fTL.x * (yTop / fTL.y)) + (canvas.width + (fTR.x - canvas.width) * (yTop / fTL.y) - (fTL.x * (yTop / fTL.y))) * kR2;
+                    const xBR1 = (fTL.x * (yBot / fTL.y)) + (canvas.width + (fTR.x - canvas.width) * (yBot / fTL.y) - (fTL.x * (yBot / fTL.y))) * kR1;
+                    const xBR2 = (fTL.x * (yBot / fTL.y)) + (canvas.width + (fTR.x - canvas.width) * (yBot / fTL.y) - (fTL.x * (yBot / fTL.y))) * kR2;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(xTR1, yTop);
+                    ctx.lineTo(xTR2, yTop);
+                    ctx.lineTo(xBR2, yBot);
+                    ctx.lineTo(xBR1, yBot);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                }
+            }
+
+            // 2. Пол (серый ковролин в офисе)
+            ctx.fillStyle = '#18181b';
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height);
+            ctx.lineTo(canvas.width, canvas.height);
+            ctx.lineTo(fBR.x, fBR.y);
+            ctx.lineTo(fBL.x, fBL.y);
+            ctx.closePath();
+            ctx.fill();
+
+            // Продольные ковровые стыки пола
+            ctx.strokeStyle = '#27272a';
+            for(let i = -4; i <= 4; i++) {
+                ctx.beginPath();
+                ctx.moveTo(vpX + (canvas.width * 0.18) * i, canvas.height);
+                ctx.lineTo(vpX + (farW * 0.1) * i, fBL.y);
+                ctx.stroke();
+            }
+
+            // Поперечные деления в перспективе
+            for (let j = 0.1; j <= 1.0; j += 0.15) {
+                const py = fBL.y + (canvas.height - fBL.y) * j * j;
+                const pxL = vpX + (0 - vpX) * (py - vpY) / (canvas.height - vpY);
+                const pxR = vpX + (canvas.width - vpX) * (py - vpY) / (canvas.height - vpY);
+                ctx.beginPath();
+                ctx.moveTo(pxL, py);
+                ctx.lineTo(pxR, py);
+                ctx.stroke();
+            }
+
+            // 3. Левая стена (матовый серый бетон)
+            ctx.fillStyle = '#2d2a24';
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(fTL.x, fTL.y);
+            ctx.lineTo(fBL.x, fBL.y);
+            ctx.lineTo(0, canvas.height);
+            ctx.closePath();
+            ctx.fill();
+
+            // Реалистичные двери слева в перспективе
+            function getLeftWallProj(z) {
+                const yTop = 0 + (fTL.y - 0) * (1 - z);
+                const yBot = canvas.height + (fBL.y - canvas.height) * (1 - z);
+                const x = 0 + (fTL.x - 0) * (1 - z);
+                return { x, yTop, yBot };
+            }
+
+            // Отрисовка деревянных дверей
+            ctx.fillStyle = '#442a19'; 
+            ctx.strokeStyle = '#1c1917';
+            ctx.lineWidth = 1.5;
+            [0.25, 0.6].forEach(z => {
+                const p1 = getLeftWallProj(z);
+                const p2 = getLeftWallProj(z + 0.14);
+                ctx.beginPath();
+                ctx.moveTo(p1.x, p1.yBot);
+                ctx.lineTo(p1.x, p1.yTop + (p1.yBot - p1.yTop) * 0.3);
+                ctx.lineTo(p2.x, p2.yTop + (p2.yBot - p2.yTop) * 0.3);
+                ctx.lineTo(p2.x, p2.yBot);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                
+                // Дверная стальная ручка
+                ctx.fillStyle = '#78716c';
+                ctx.fillRect(p1.x + (p2.x - p1.x)*0.1, p1.yBot - (p1.yBot - p1.yTop)*0.35, 4 * z, 1.5 * z);
+            });
+
+            // 4. Правая стена
+            ctx.fillStyle = '#2d2a24';
+            ctx.beginPath();
+            ctx.moveTo(canvas.width, 0);
+            ctx.lineTo(fTR.x, fTR.y);
+            ctx.lineTo(fBR.x, fBR.y);
+            ctx.lineTo(canvas.width, canvas.height);
+            ctx.closePath();
+            ctx.fill();
+
+            // Реалистичные двери справа в перспективе
+            function getRightWallProj(z) {
+                const yTop = 0 + (fTR.y - 0) * (1 - z);
+                const yBot = canvas.height + (fBR.y - canvas.height) * (1 - z);
+                const x = canvas.width + (fTR.x - canvas.width) * (1 - z);
+                return { x, yTop, yBot };
+            }
+
+            ctx.fillStyle = '#442a19';
+            [0.25, 0.6].forEach(z => {
+                const p1 = getRightWallProj(z);
+                const p2 = getRightWallProj(z + 0.14);
+                ctx.beginPath();
+                ctx.moveTo(p1.x, p1.yBot);
+                ctx.lineTo(p1.x, p1.yTop + (p1.yBot - p1.yTop) * 0.3);
+                ctx.lineTo(p2.x, p2.yTop + (p2.yBot - p2.yTop) * 0.3);
+                ctx.lineTo(p2.x, p2.yBot);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = '#78716c';
+                ctx.fillRect(p1.x - (p1.x - p2.x)*0.1 - (4*z), p1.yBot - (p1.yBot - p1.yTop)*0.35, 4 * z, 1.5 * z);
+            });
+
+            // Дальняя тупиковая стена (двери лифта)
+            ctx.fillStyle = '#1e1b18';
+            ctx.beginPath();
+            ctx.moveTo(fTL.x, fTL.y);
+            ctx.lineTo(fTR.x, fTR.y);
+            ctx.lineTo(fBR.x, fBR.y);
+            ctx.lineTo(fBL.x, fBL.y);
+            ctx.closePath();
+            ctx.fill();
+
+            // Стальные створки лифта по центру
+            ctx.fillStyle = '#3f3f46';
+            ctx.strokeStyle = '#18181b';
+            ctx.lineWidth = 2;
+            ctx.fillRect(vpX - farW*0.35, fBL.y - farH*0.75, farW*0.7, farH*0.75);
+            ctx.strokeRect(vpX - farW*0.35, fBL.y - farH*0.75, farW*0.7, farH*0.75);
+            
+            // Вертикальный стык створок
+            ctx.beginPath();
+            ctx.moveTo(vpX, fBL.y);
+            ctx.lineTo(vpX, fBL.y - farH*0.75);
+            ctx.stroke();
+        }
+
+
+        // ==================== ИГРОВОЙ ЦИКЛ (GAMELOOP) ====================
+        let spawnInterval = 1800; 
+        let spamSpawnInterval = 7500; 
+
+        function gameLoop(now) {
+            if (gameState.currentScreen !== 'game') return;
+
+            const dt = now - gameState.lastFrameTime;
+            gameState.lastFrameTime = now;
+
+            if (gameState.screenShakeTime > 0) {
+                gameState.screenShakeTime -= dt;
+                if (gameState.screenShakeTime <= 0) {
+                    document.getElementById('game-body').classList.remove('screen-shake');
+                }
+            }
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            drawRealisticCorridor();
+
+            // ОТРИСОВКА И ДИНАМИЧЕСКИЙ ПРОСЧЕТ ЛАЗЕРНОГО ЛУЧА И СВЕЧЕНИЯ ТОЧКИ!
+            let leftEdge = window.innerWidth * 0.88 - 420;
+            let topEdge = window.innerHeight - 320;
+            let laserX = leftEdge + 120 + gameState.weaponBobX;
+            let laserY = topEdge + 128 + gameState.weaponBobY + gameState.weaponRecoilY + gameState.weaponReloadYOffset;
+
+            // Рисуем луч ЛЦУ
+            ctx.save();
+            ctx.strokeStyle = 'rgba(239, 68, 68, 0.28)';
+            ctx.lineWidth = 1.8;
+            ctx.beginPath();
+            ctx.moveTo(laserX, laserY);
+            ctx.lineTo(mouseState.x, mouseState.y);
+            ctx.stroke();
+
+            // Отрисовка светящейся точки ЛЦУ на стене/неписях
+            let grad = ctx.createRadialGradient(mouseState.x, mouseState.y, 1, mouseState.x, mouseState.y, 7);
+            grad.addColorStop(0, 'rgba(255, 120, 120, 1)');
+            grad.addColorStop(0.3, 'rgba(239, 68, 68, 0.8)');
+            grad.addColorStop(1, 'rgba(239, 68, 68, 0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(mouseState.x, mouseState.y, 7, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+
+            // ОБРАБОТКА ПРОЦЕДУРНОЙ АНИМАЦИИ ПЕРЕЗАРЯДКИ
+            if (gameState.isReloading) {
+                gameState.reloadTimer += dt;
+                let progress = gameState.reloadTimer / 600; // 600мс перезарядки
+                if (progress >= 1) {
+                    progress = 1;
+                    gameState.isReloading = false;
+                    gameState.ammo = config.maxAmmo;
+                    document.getElementById('reload-prompt').innerText = 'RELOAD (R)';
+                    document.getElementById('reload-prompt').classList.add('hidden');
+                    updateUI();
+                }
+                gameState.weaponReloadYOffset = Math.sin(progress * Math.PI) * 350;
+            } else {
+                gameState.weaponReloadYOffset = 0;
+            }
+
+            gameState.weaponRecoilY *= 0.82; 
+            gameState.weaponRecoilRot *= 0.82;
+
+            const weaponViewport = document.getElementById('weapon-viewport');
+            if (weaponViewport) {
+                let rot = gameState.weaponRecoilRot;
+                if (gameState.cheatActive && mouseState.isDown) {
+                    gameState.weaponSpinAngle = (gameState.weaponSpinAngle || 0) + 12;
+                    rot += gameState.weaponSpinAngle;
+                }
+                const currentX = gameState.weaponBobX;
+                const currentY = gameState.weaponBobY + gameState.weaponRecoilY + gameState.weaponReloadYOffset;
+                weaponViewport.style.transform = `translate(${currentX}px, ${currentY}px) rotate(${rot}deg) scale(1.15)`;
+            }
+
+            if (gameState.dadModeActive) {
+                gameState.dadModeTimer -= dt;
+                gameState.rage = (gameState.dadModeTimer / config.dadModeDuration) * 100;
+                
+                if (mouseState.isDown && now - lastShootTime > 80) {
+                    triggerShoot(mouseState.x, mouseState.y);
+                }
+
+                if (gameState.dadModeTimer <= 0) {
+                    deactivateDadMode();
+                }
+                updateUI();
+            }
+
+            if (gameState.cheatActive && mouseState.isDown && !gameState.dadModeActive) {
+                if (now - lastShootTime > 60) {
+                    triggerShoot(mouseState.x, mouseState.y);
+                }
+            }
+
+            for (let i = gameState.spamPopups.length - 1; i >= 0; i--) {
+                const pop = gameState.spamPopups[i];
+                const exploded = pop.update(dt);
+                if (exploded) {
+                    gameState.spamPopups.splice(i, 1);
+                }
+            }
+
+            if (now - gameState.lastSpamSpawnTime > spamSpawnInterval && !gameState.dadModeActive) {
+                gameState.lastSpamSpawnTime = now;
+                if (gameState.spamPopups.length < 3) { 
+                    gameState.spamPopups.push(new SpamPopup());
+                }
+            }
+
+            if (now - gameState.lastSpawnTime > spawnInterval) {
+                gameState.lastSpawnTime = now;
+                
+                if (gameState.wave === 3 && !gameState.bossActive && gameState.enemies.length === 0) {
+                    gameState.bossActive = true;
+                    gameState.boss = new Boss();
+                }
+
+                const maxEnemiesOnScreen = 4 + gameState.wave;
+                const canSpawnNormal = !gameState.bossActive && (
+                    (gameState.wave === 1 && gameState.killsInCurrentWave < 8) || 
+                    (gameState.wave === 2 && gameState.killsInCurrentWave < 12)   
+                );
+
+                if (canSpawnNormal && gameState.enemies.length < maxEnemiesOnScreen) {
+                    gameState.enemies.push(new Enemy());
+                }
+            }
+
+            if (gameState.bossActive && gameState.boss) {
+                gameState.boss.update(dt, now);
+                gameState.boss.draw();
+            }
+
+            // ОБНОВЛЕНИЕ ВРАГОВ С БЕЗОПАСНЫМ ПОСТ-ФРЕЙМ УДАЛЕНИЕМ!
+            for (let i = 0; i < gameState.enemies.length; i++) {
+                gameState.enemies[i].update(dt);
+            }
+            // Отрисовываем только живых
+            for (let i = 0; i < gameState.enemies.length; i++) {
+                if (!gameState.enemies[i].isDead) {
+                    gameState.enemies[i].draw(now);
+                }
+            }
+            // И только теперь очищаем массив!
+            gameState.enemies = gameState.enemies.filter(enemy => !enemy.isDead);
+
+            // ОБНОВЛЕНИЕ СНАРЯДОВ БОССА С БЕЗОПАСНЫМ ПОСТ-ФРЕЙМ УДАЛЕНИЕМ!
+            for (let i = 0; i < gameState.projectiles.length; i++) {
+                gameState.projectiles[i].update(dt);
+            }
+            for (let i = 0; i < gameState.projectiles.length; i++) {
+                if (!gameState.projectiles[i].isDead) {
+                    gameState.projectiles[i].draw();
+                }
+            }
+            gameState.projectiles = gameState.projectiles.filter(proj => !proj.isDead);
+
+            // ОБРАБОТКА И ОТРИСОВКА СТЕКЛЯННЫХ ТРЕЩИН С ПЛАВНЫМ ЗАТЯГИВАНИЕМ
+            for (let i = gameState.cracks.length - 1; i >= 0; i--) {
+                let crack = gameState.cracks[i];
+                crack.draw();
+                crack.opacity -= dt * 0.00015; 
+                if (crack.opacity <= 0) {
+                    gameState.cracks.splice(i, 1);
+                }
+            }
+
+            for (let i = gameState.particles.length - 1; i >= 0; i--) {
+                let part = gameState.particles[i];
+                const dead = part.update();
+                if (dead) {
+                    gameState.particles.splice(i, 1);
+                } else {
+                    part.draw();
+                }
+            }
+
+            for (let i = floatingTexts.length - 1; i >= 0; i--) {
+                let t = floatingTexts[i];
+                const dead = t.update();
+                if (dead) {
+                    floatingTexts.splice(i, 1);
+                } else {
+                    t.draw();
+                }
+            }
+
+            drawAmbientDustInCorridor(dt);
+
+            if (gameState.hp <= 0) {
+                document.getElementById('final-score').innerText = gameState.score;
+                document.getElementById('final-wave').innerText = gameState.wave;
+                switchScreen('gameover');
+                document.getElementById('crosshair').style.display = 'none';
+                return;
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        let gameDustParticles = [];
+        for(let i = 0; i < 30; i++) {
+            gameDustParticles.push({
+                x: Math.random() * window.innerWidth,
+                y: Math.random() * window.innerHeight,
+                size: Math.random() * 1.5 + 0.5,
+                speedX: (Math.random() - 0.5) * 0.3,
+                speedY: (Math.random() - 0.5) * 0.2
+            });
+        }
+
+        function drawAmbientDustInCorridor(dt) {
+            ctx.fillStyle = 'rgba(214, 211, 209, 0.25)';
+            const mult = gameState.dadModeActive ? 0.15 : 1.0;
+
+            for(let i = 0; i < gameDustParticles.length; i++) {
+                let p = gameDustParticles[i];
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+                
+                p.y += p.speedY * mult * (dt / 16.6);
+                p.x += p.speedX * mult * (dt / 16.6);
+                if (p.y > canvas.height || p.y < 0 || p.x < 0 || p.x > canvas.width) {
+                    p.y = Math.random() * canvas.height;
+                    p.x = Math.random() * canvas.width;
+                }
+            }
+        }
+
+
+        // ==================== СОБЫТИЯ ВВОДА И КОНТРОЛЛЕРЫ ====================
+        const mouseState = { x: 0, y: 0, isDown: false };
+        const crosshair = document.getElementById('crosshair');
+
+        window.addEventListener('mousemove', (e) => {
+            mouseState.x = e.clientX;
+            mouseState.y = e.clientY;
+            
+            crosshair.style.left = `${e.clientX}px`;
+            crosshair.style.top = `${e.clientY}px`;
+
+            if (gameState.currentScreen === 'game') {
+                gameState.weaponBobX = (e.clientX - window.innerWidth / 2) * 0.03;
+                gameState.weaponBobY = (e.clientY - window.innerHeight / 2) * 0.03;
+            }
+        });
+
+        window.addEventListener('mousedown', (e) => {
+            if (e.target.closest('button') || e.target.closest('#spam-popups-container') || e.target.closest('#life-difficulty-modal')) {
+                return;
+            }
+            
+            mouseState.isDown = true;
+            if (gameState.currentScreen === 'game') {
+                triggerShoot(e.clientX, e.clientY);
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            mouseState.isDown = false;
+        });
+
+        window.addEventListener('touchstart', (e) => {
+            if (gameState.currentScreen === 'game' && e.touches.length > 0) {
+                const t = e.touches[0];
+                
+                if (e.target.closest('button') || e.target.closest('#spam-popups-container') || e.target.closest('#life-difficulty-modal')) {
+                    return;
+                }
+                
+                mouseState.x = t.clientX;
+                mouseState.y = t.clientY;
+                mouseState.isDown = true;
+                
+                crosshair.style.left = `${t.clientX}px`;
+                crosshair.style.top = `${t.clientY}px`;
+                
+                triggerShoot(t.clientX, t.clientY);
+            }
+        });
+
+        window.addEventListener('touchend', () => {
+            mouseState.isDown = false;
+        });
+
+        window.addEventListener('keydown', (e) => {
+            gameState.keys[e.code] = true;
+            
+            if (gameState.currentScreen === 'game') {
+                if (e.code === 'KeyR' || e.code === 'KeyК') {
+                    reloadWeapon();
+                }
+                if (e.code === 'KeyG' || e.code === 'KeyП') { 
+                    useGrenade();
+                }
+                if (e.code === 'Space') {
+                    activateDadMode();
+                    e.preventDefault();
+                }
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            gameState.keys[e.code] = false;
+        });
+
+
+        // ==================== АНИМАЦИЯ САЛЮТА НА ПОБЕДНОМ ЭКРАНЕ ====================
+        let victoryConfettiCanvas = document.getElementById('victory-confetti');
+        let vCtx = victoryConfettiCanvas.getContext('2d');
+        let confettiArray = [];
+
+        function initVictoryConfetti() {
+            victoryConfettiCanvas.width = window.innerWidth;
+            victoryConfettiCanvas.height = window.innerHeight;
+            confettiArray = [];
+
+            for(let i=0; i<120; i++) {
+                confettiArray.push({
+                    x: Math.random() * victoryConfettiCanvas.width,
+                    y: Math.random() * -200 - 50,
+                    size: Math.random() * 8 + 4,
+                    color: `hsl(${Math.random() * 360}, 60%, 50%)`, 
+                    vx: (Math.random() - 0.5) * 4,
+                    vy: Math.random() * 5 + 3,
+                    rot: Math.random() * Math.PI,
+                    rotSpeed: (Math.random() - 0.5) * 0.1
+                });
+            }
+            animateVictoryConfetti();
+        }
+
+        function animateVictoryConfetti() {
+            if (gameState.currentScreen !== 'victory') return;
+            vCtx.clearRect(0, 0, victoryConfettiCanvas.width, victoryConfettiCanvas.height);
+            
+            confettiArray.forEach(c => {
+                c.y += c.vy;
+                c.x += c.vx;
+                c.rot += c.rotSpeed;
+
+                vCtx.save();
+                vCtx.translate(c.x, c.y);
+                vCtx.rotate(c.rot);
+                vCtx.fillStyle = c.color;
+                vCtx.fillRect(-c.size/2, -c.size/2, c.size, c.size);
+                vCtx.restore();
+
+                if (c.y > victoryConfettiCanvas.height) {
+                    c.y = -20;
+                    c.x = Math.random() * victoryConfettiCanvas.width;
+                }
+            });
+
+            requestAnimationFrame(animateVictoryConfetti);
+        }
+    </script>
+</body>
+</html>
